@@ -9,6 +9,7 @@ export function buildToolbar(toolbar: HTMLElement, settings: Settings, mode: Edi
   link: () => void; image: () => void; mode: (mode: EditorMode) => void;
   command: (command: 'auto' | 'normalize' | 'html' | 'pdf') => void;
   profile: (profile: Profile) => void;
+  toc: () => void; tocVisible: boolean;
 }) {
   const readOnly = mode === 'preview';
   const focused = toolbar.contains(document.activeElement) ? document.activeElement?.getAttribute('aria-label') : null;
@@ -43,6 +44,10 @@ export function buildToolbar(toolbar: HTMLElement, settings: Settings, mode: Edi
     });
     details.append(summary, popup); toolbar.append(details);
   };
+  const toc = button('toc', 'Toggle table of contents', actions.toc, false);
+  toc.setAttribute('aria-controls', 'toc'); toc.setAttribute('aria-expanded', String(actions.tocVisible));
+  toc.setAttribute('aria-pressed', String(actions.tocVisible));
+  separator();
   menu('heading', 'Paragraph or heading', ['Paragraph', ...Array.from({ length: 6 }, (_, i) => `Heading ${i + 1}`)].map((label, i) => [label, () => actions.format('heading', String(i))]));
   for (const [name, action, label] of [
     ['bold', 'strong', 'Bold (Ctrl/Cmd+B)'], ['italic', 'emphasis', 'Italic (Ctrl/Cmd+I)'], ['strike', 'strike', 'Strikethrough (Ctrl/Cmd+Shift+X)'], ['inlineCode', 'inlineCode', 'Inline code (Ctrl/Cmd+E)'],

@@ -8,6 +8,21 @@ import type { Ctx } from '@milkdown/kit/ctx';
 import { autoMarkdown } from '../src/webview/auto';
 import { formatSource } from '../src/webview/source';
 import { highlightMarkdownSource } from '../src/webview/sourceHighlight';
+import { documentHeadings } from '../src/webview/toc';
+
+test('TOC extracts nested, duplicate, and formatted headings with exact source locations', () => {
+  const source = '---\r\ntitle: Hidden\r\n---\r\n\r\n# **First** [link](https://example.com)\r\n\r\nSetext\r\n======\r\n\r\n> ### Nested `code`\r\n\r\n```md\r\n# Not a heading\r\n```\r\n\r\n## Same\r\n\r\n## Same\r\n\r\n## <em>HTML</em> ![Logo](logo.png) $x_0$';
+  const headings = documentHeadings(source);
+  assert.deepEqual(headings.map(({ text, level }) => ({ text, level })), [
+    { text: 'First link', level: 1 }, { text: 'Setext', level: 1 }, { text: 'Nested code', level: 3 },
+    { text: 'Same', level: 2 }, { text: 'Same', level: 2 }, { text: 'HTML Logo x_0', level: 2 },
+  ]);
+  for (const heading of headings) {
+    assert.equal(source.slice(0, heading.offset).split('\n').length, heading.line);
+    assert.match(source.slice(heading.offset), /^(?:#|Setext)/);
+  }
+  assert.deepEqual(documentHeadings('Just text.\n\n    # Code'), []);
+});
 
 const schema = new Schema({ nodes: {
   doc: { content: 'block+' }, text: { group: 'inline' },

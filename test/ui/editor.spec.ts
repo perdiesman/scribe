@@ -1,6 +1,46 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
+test('TOC responds to available room and preserves the manual toggle across views and reloads', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 }); await open(page, '# Heading');
+  const toc = page.getByRole('navigation', { name: 'Table of contents' });
+  const toggle = page.getByRole('button', { name: 'Toggle table of contents', exact: true });
+  await expect(toc).toBeVisible(); await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await page.setViewportSize({ width: 800, height: 800 }); await expect(toc).toBeHidden();
+  await page.setViewportSize({ width: 1400, height: 800 }); await expect(toc).toBeVisible();
+  await toggle.click(); await expect(toc).toBeHidden();
+  await page.getByRole('button', { name: 'Source view', exact: true }).click();
+  await page.reload(); await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toc).toBeHidden();
+  await toggle.click(); await page.setViewportSize({ width: 420, height: 800 });
+  await expect(toc).toBeVisible();
+  expect(await page.evaluate(() => document.body.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('TOC navigation works in every view without edits and follows heading edits', async ({ page }) => {
+  const original = '# Top\n\n' + 'Paragraph.\n\n'.repeat(80) + '## Destination\n\n```md\n# Not a heading\n```';
+  const { state } = await open(page, original);
+  const toc = page.getByRole('navigation', { name: 'Table of contents' });
+  await expect(toc.getByRole('button')).toHaveCount(2);
+  for (const view of ['WYSIWYG view', 'Source view', 'Split view', 'Read-only preview']) {
+    await page.getByRole('button', { name: view, exact: true }).click();
+    await toc.getByRole('button', { name: 'Destination', exact: true }).click();
+    if (view === 'Source view' || view === 'Split view') {
+      const source = page.getByRole('textbox', { name: 'Markdown source', exact: true });
+      expect(await source.evaluate(input => (input as HTMLTextAreaElement).selectionStart)).toBe(original.indexOf('## Destination'));
+      expect(await source.evaluate(input => input.scrollTop)).toBeGreaterThan(0);
+    } else {
+      const pane = page.locator(view === 'WYSIWYG view' ? '#visual-pane' : '#preview-pane');
+      expect(await pane.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    }
+    expect((await state()).source).toBe(original);
+  }
+  await page.getByRole('button', { name: 'Source view', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Markdown source', exact: true }).fill('# Renamed');
+  await expect(toc.getByRole('button')).toHaveCount(1);
+  await expect(toc.getByRole('button', { name: 'Renamed', exact: true })).toBeVisible();
+});
+
 async function open(page: Page, source = '') {
   const id = randomUUID();
   await page.request.post(`/reset?id=${id}`, { data: { source } });

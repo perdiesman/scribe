@@ -21,11 +21,12 @@ import { autoMarkdown } from './auto';
 import { enhance } from './enhance';
 import { formatSource, type SourceFormat } from './source';
 import { highlightMarkdownSource } from './sourceHighlight';
+import { documentHeadings } from './toc';
 import { buildToolbar, type TableAction } from './toolbar';
 import { icon } from './icons';
 import type { EditorMessage, HostMessage, Settings, EditorMode } from '../protocol';
 
-declare function acquireVsCodeApi(): { postMessage(message: EditorMessage): void; getState?(): { mode?: EditorMode }; setState?(state: { mode: EditorMode }): void };
+declare function acquireVsCodeApi(): { postMessage(message: EditorMessage): void; getState?(): { mode?: EditorMode; toc?: boolean }; setState?(state: { mode: EditorMode; toc?: boolean }): void };
 const vscode = acquireVsCodeApi();
 const send = (message: EditorMessage) => vscode.postMessage(message);
 const root = document.querySelector<HTMLElement>('#editor')!;
@@ -38,14 +39,78 @@ const sourceHighlight = document.querySelector<HTMLElement>('#source-highlight')
 const sourceTokens = sourceHighlight.querySelector('code')!;
 const toolbar = document.querySelector<HTMLElement>('#toolbar')!;
 const status = document.querySelector<HTMLElement>('#status')!;
+const toc = document.querySelector<HTMLElement>('#toc')!;
+const tocEntries = document.querySelector<HTMLElement>('#toc-entries')!;
+const wideEditor = matchMedia('(min-width: 1100px)');
+const savedState = vscode.getState?.();
+let tocPreference = savedState?.toc;
 let editor: Editor | undefined, ready = false, suppress = false, isDirty = false;
-let mode: EditorMode = vscode.getState?.()?.mode ?? 'wysiwyg';
+let mode: EditorMode = savedState?.mode ?? 'wysiwyg';
 let pane: 'visual' | 'source' = 'visual', currentSource = '', eol = '\n';
 let settings: Settings = { autoFormatMarkdown: true, profile: 'github' };
 let version = 0, sequence = 0, assets = 0, scrolling = false, modeRequest = 0;
 const pending = new Set<number>(), actions: (() => void)[] = [];
 const images = new Map<number, { image: HTMLImageElement; path: string }>();
 const inSource = () => mode === 'source' || (mode === 'split' && pane === 'source');
+const saveViewState = () => vscode.setState?.({ mode, toc: tocPreference });
+
+function updateTocVisibility() {
+  toc.hidden = !(tocPreference ?? wideEditor.matches);
+  rebuildToolbar();
+}
+wideEditor.addEventListener('change', updateTocVisibility);
+
+function updateToc() {
+  const headings = documentHeadings(source.value);
+  tocEntries.replaceChildren();
+  if (!headings.length) { tocEntries.textContent = 'No headings yet.'; return; }
+  for (const [index, heading] of headings.entries()) {
+    const button = document.createElement('button'); button.type = 'button';
+    button.textContent = heading.text || 'Untitled heading'; button.title = button.textContent;
+    button.style.paddingLeft = `${10 + (heading.level - 1) * 12}px`;
+    button.onclick = () => {
+      scrolling = true; requestAnimationFrame(() => { scrolling = false; });
+      if (mode === 'source' || mode === 'split') {
+        source.focus(); source.setSelectionRange(heading.offset, heading.offset);
+        source.scrollTop = (heading.line - 1) * parseFloat(getComputedStyle(source).lineHeight);
+        syncSourceHighlightScroll();
+        if (mode === 'source') return;
+      }
+      if (mode === 'preview') {
+        const matches = Array.from(previewPane.querySelectorAll<HTMLElement>(`h${heading.level}`)).filter(element => {
+          const copy = element.cloneNode(true) as HTMLElement;
+          copy.querySelectorAll('.katex').forEach(math => math.replaceWith(document.createTextNode(math.querySelector('annotation')?.textContent ?? '')));
+          copy.querySelectorAll('img').forEach(image => image.replaceWith(document.createTextNode(image.alt)));
+          return copy.textContent === heading.text;
+        });
+        const duplicate = headings.slice(0, index).filter(item => item.level === heading.level && item.text === heading.text).length;
+        const target = matches[duplicate];
+        if (target) {
+          for (let parent = target.parentElement; parent && parent !== previewPane; parent = parent.parentElement) if (parent instanceof HTMLDetailsElement) parent.open = true;
+          target.scrollIntoView({ block: 'start' }); target.tabIndex = -1; target.focus({ preventScroll: true });
+        }
+        return;
+      }
+      editor?.action(ctx => {
+        const view = ctx.get(editorViewCtx);
+        const blocks = parseMarkdown(source.value).children;
+        const blockIndex = blocks.findIndex(block => block.position!.end.offset! > heading.offset);
+        if (blockIndex < 0 || blockIndex >= view.state.doc.childCount) return;
+        let position = 0;
+        for (let i = 0; i < blockIndex; i++) position += view.state.doc.child(i).nodeSize;
+        const block = view.state.doc.child(blockIndex), blockPosition = position;
+        let ordinal = headings.slice(0, index).filter(item => item.offset >= blocks[blockIndex].position!.start.offset!).length;
+        if (block.type.name !== 'heading') block.descendants((node, offset) => {
+          if (node.type.name === 'heading' && ordinal-- === 0) position = blockPosition + 1 + offset;
+        });
+        if (mode !== 'split') view.dispatch(view.state.tr.setSelection(Selection.near(view.state.doc.resolve(position + 1))));
+        (view.nodeDOM(position) as HTMLElement | null)?.scrollIntoView({ block: 'start' });
+        if (mode !== 'split') view.focus();
+      });
+    };
+    tocEntries.append(button);
+  }
+}
 
 function showStatus(text: string, error = false) { status.textContent = text; status.classList.toggle('error', error); }
 function documentStatus() { showStatus(pending.size ? 'Updating Markdown…' : isDirty ? 'Unsaved changes' : 'Saved'); }
@@ -58,6 +123,7 @@ function syncSourceHighlightScroll() { sourceHighlight.scrollTop = source.scroll
 function highlightSourceText() {
   sourceTokens.innerHTML = highlightMarkdownSource(source.value) + '\n';
   syncSourceHighlightScroll();
+  updateToc();
 }
 function updateSource(text: string) {
   const value = text.replace(/\r\n/g, '\n');
@@ -116,7 +182,7 @@ function setMode(value: EditorMode, focus = true) {
   mode = value; workspace.dataset.mode = value;
   visualPane.hidden = value === 'source' || value === 'preview'; sourcePane.hidden = value === 'wysiwyg' || value === 'preview'; previewPane.hidden = value !== 'preview';
   visualPane.inert = sourcePane.inert = value === 'preview';
-  vscode.setState?.({ mode }); send({ type: 'mode', mode }); rebuildToolbar();
+  saveViewState(); send({ type: 'mode', mode }); updateTocVisibility();
   requestAnimationFrame(syncSourceHighlightScroll);
   if (value === 'preview') renderPreview();
   else if (value !== 'source') requestAnimationFrame(() => { void enhance(visualPane); });
@@ -241,6 +307,8 @@ async function fields(title: string, labels: string[]): Promise<string[] | undef
 function rebuildToolbar() {
   buildToolbar(toolbar, settings, mode, {
     format, table: tableAction, mode: setMode,
+    tocVisible: !toc.hidden,
+    toc: () => { tocPreference = toc.hidden; saveViewState(); updateTocVisibility(); },
     command: command => afterEdits(() => send({ type: 'command', command })),
     profile: profile => send({ type: 'profile', profile }),
     link: () => { const raw = inSource(); void fields('Link', ['URL']).then(values => {

@@ -6,9 +6,12 @@
 
 SCRIBE stands for **Synchronized Content Rendering & Interactive Block Editing**. It brings visual Markdown editing, native source views, code copying, and HTML/PDF export into one VS Code extension.
 
+<!-- screenshots:start -->
+<!-- screenshots:end -->
+
 ## Development status
 
-SCRIBE is a prerelease extension. TypeScript checking and all 28 core/regression tests pass. Use the committed `package-lock.json` with `npm ci` for reproducible installs.
+SCRIBE is an early release. TypeScript checking and all 29 core/regression tests pass. Use the committed `package-lock.json` with `npm ci` for reproducible installs.
 
 Browser editing, native VS Code integration, PDF output, and cross-platform/Remote smoke tests remain release gates. The automated browser/native tests are blocked in the implementation environment by local-server and Electron restrictions. First-use fixes have regression coverage, including heading preservation, code-block exits, source formatting, HTML progress completion, and isolated PDF callback execution. Packaging alone does not validate complete editor behavior or PDF output.
 
@@ -19,6 +22,8 @@ Run **SCRIBE: Open in SCRIBE**, or choose **Reopen Editor With → SCRIBE** on a
 Use **Source view**, **WYSIWYG view**, **Split view**, or **Read-only preview** in the toolbar. All four stay inside the same SCRIBE tab. Split displays editable Markdown beside the visual editor, with synchronized selection and scrolling. Both editing panes share the same file, save state, undo history, and toolbar. Formatting actions apply to the focused pane: Markdown syntax in Source, rich formatting in WYSIWYG.
 
 **Read-only preview** shows the rendered document without typing or source-edit controls, similar to a repository Markdown page. Formatting buttons, editing menus, Normalize, and SCRIBE undo/redo are disabled. All view-switch buttons stay active, along with rendering-profile selection, code copying, and HTML/PDF export. Pending edits reach the document before entering preview; switching views does not discard them.
+
+**Table of contents** lists headings on the left and jumps to them in every view. It opens automatically when the editor is at least 1,100 pixels wide and hides on narrower editors. Use the toolbar toggle to override this; your choice persists for that editor across view changes and reloads. The list updates as you edit and ignores headings inside code blocks.
 
 The status bar shows **Unsaved changes** until the VS Code document is saved, then **Saved**. Use Ctrl/Cmd+S to save.
 
@@ -122,6 +127,8 @@ npm run package
 ```
 
 Build before pressing F5 to open the **Run SCRIBE** extension host. Try [the sample document](test/fixtures/sample.md). The package command generates a `.vsix` that can be installed using **Extensions: Install from VSIX…**.
+
+Run `npm run screenshots` to capture the sample document in WYSIWYG, Source, Split, and Read-only Preview using the actual editor bundle and the browser test host. The command saves PNGs under `docs/screenshots/` and inserts them into this README. It requires the Playwright Chromium installed above. Commit the images and README together; documentation screenshots are excluded from the VSIX.
 
 The browser suite exercises the actual editor bundle against a simulated VS Code message host. The separate extension-host suite checks real VS Code editor registration, shared source, normalization, undo/revert, and settings. Linux CI runs extension-host tests under Xvfb. Manual Windows/macOS/Linux and Remote smoke tests remain a release gate.
 

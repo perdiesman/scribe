@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.1.4 — Unreleased
+## 0.1.5
+
+- Add a live left-side table of contents with heading navigation in all four views.
+- Show the TOC automatically in wide editors, with a toolbar toggle that remembers a manual choice.
+
+## 0.1.4
 
 - Recognize inline and block math in source highlighting so LaTeX subscripts cannot start runaway Markdown emphasis.
 - Restore the source-highlighting background while retaining correct text colors and alignment.

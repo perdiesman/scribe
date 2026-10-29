@@ -1,4 +1,5 @@
 const paths = {
+  toc: 'M3 4h18v16H3zM10 4v16M5 8h3M5 12h3M5 16h3',
   bold: 'M6 4h7a4 4 0 0 1 0 8H6zm0 8h8a4 4 0 0 1 0 8H6z',
   italic: 'M10 4h10M4 20h10M15 4 9 20',
   strike: 'M17 5c-5-4-12-1-9 4M7 17c2 4 11 4 10-1M3 12h18',

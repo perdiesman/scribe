@@ -35,7 +35,13 @@ button svg, summary svg { width: 18px; height: 18px; display: block; }
 .toolbar-popup button:hover, .toolbar-popup button:focus-visible { background: var(--vscode-menu-selectionBackground, Highlight); color: var(--vscode-menu-selectionForeground, HighlightText); }
 select, option { background: var(--vscode-dropdown-background, Canvas); color: var(--vscode-dropdown-foreground, CanvasText); border-color: var(--vscode-dropdown-border, var(--scribe-border)); }
 #toolbar select { height: 28px; max-width: 85px; padding: 2px 4px; font-size: 12px; }
-#workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+#editor-layout { display: flex; flex: 1; min-height: 0; }
+#toc { flex: 0 0 220px; max-width: 40%; min-width: 0; overflow: auto; border-right: 1px solid var(--scribe-border); padding: 12px 4px; background: var(--vscode-sideBar-background, var(--vscode-editor-background, Canvas)); }
+#toc h2 { margin: 0 10px 8px; font-size: 12px; text-transform: uppercase; color: var(--scribe-muted); }
+#toc-entries { color: var(--scribe-muted); font-size: 12px; }
+#toc button { display: block; width: 100%; border: 0; background: transparent; color: var(--vscode-sideBar-foreground, inherit); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 10px; }
+#toc button:hover { background: var(--vscode-list-hoverBackground, #8882); }
+#workspace { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 #workspace[data-mode=split] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #visual-pane, #source-pane, #preview-pane { min-width: 0; min-height: 0; }
 #visual-pane, #preview-pane { overflow: auto; }
@@ -138,5 +144,5 @@ dialog button { margin-right: 6px; }
   tr, img, svg, .markdown-alert { break-inside: avoid; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
   p { orphans: 3; widows: 3; }
-  .app-header, #status, .code-controls { display: none; }
+  .app-header, #status, #toc, .code-controls { display: none; }
 }
