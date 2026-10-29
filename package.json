@@ -3,7 +3,7 @@
   "displayName": "SCRIBE - WYSIWYG Markdown Editor",
   "description": "Write what you see. Commit what you mean. Synchronized Content Rendering & Interactive Block Editing.",
   "version": "0.1.4",
-  "publisher": "scribe",
+  "publisher": "MitchellBroughton",
   "icon": "logo.png",
   "repository": { "type": "git", "url": "https://github.com/perdiesman/scribe.git" },
   "homepage": "https://github.com/perdiesman/scribe",
