@@ -147,7 +147,7 @@ async function initialize() {
   const disabled = new Set([...commonInput, ...commonMarks, ...gfmInput, ...gfmMarks, ...gfmPaste]);
   editor = await Editor.make().config(ctx => {
     ctx.set(rootCtx, root); ctx.set(defaultValueCtx, '');
-    ctx.update(remarkStringifyOptionsCtx, options => ({ ...options, bullet: '-', emphasis: '*', strong: '*', fences: true, listItemIndent: 'one' }));
+    ctx.update(remarkStringifyOptionsCtx, options => ({ ...options, bullet: '-' as const, emphasis: '*' as const, strong: '*' as const, fences: true, listItemIndent: 'one' as const }));
   }).use($prose(ctx => autoMarkdown(ctx, () => settings.autoFormatMarkdown, direction => afterEdits(() => send({ type: 'history', direction })))))
     .use(commonmark.filter(plugin => !disabled.has(plugin)))
     .use(gfm.filter(plugin => !disabled.has(plugin)))
@@ -162,7 +162,7 @@ async function initialize() {
     } }) }))).create();
   editor.action(ctx => {
     // Use a source-preserving AST projection; the default parser can discard unsupported syntax.
-    const processor = markdownProcessor().use(() => (_tree, file) => projectMarkdown(String(file.value)));
+    const processor = markdownProcessor().use(function () { this.parser = projectMarkdown; });
     ctx.set(parserCtx, ParserState.create(ctx.get(schemaCtx), processor));
     const view = ctx.get(editorViewCtx); view.dom.setAttribute('aria-label', 'Markdown document'); view.dom.setAttribute('role', 'textbox'); view.dom.setAttribute('aria-multiline', 'true');
   });

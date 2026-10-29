@@ -133,7 +133,7 @@ test('local image resolution rejects traversal, protocols, malformed paths, and 
   const document = Uri.file(join(root, 'readme.md')) as unknown as vscode.Uri;
   try {
     for (const value of ['https://example.com/image.png', '//example.com/image.png', '../../private.png', '%2e%2e/%2e%2e/private.png', 'x%00.png', 'x\\secret.png']) {
-      assert.throws(() => resolveAsset(document, value), undefined, value);
+      assert.throws(() => resolveAsset(document, value), value);
     }
     await writeFile(join(directory, 'private.png'), 'private');
     await symlink(join(directory, 'private.png'), join(root, 'linked.png'));

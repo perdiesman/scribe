@@ -8,7 +8,9 @@ SCRIBE stands for **Synchronized Content Rendering & Interactive Block Editing**
 
 ## Development status
 
-This repository contains the initial implementation. Core preservation, rendering, and protocol tests have passed locally. Full extension builds, browser editor tests, VS Code integration tests, VSIX packaging, and cross-platform/Remote smoke tests still need to pass before this should be released. The implementation environment could not reach npm, and its cache did not include Milkdown or the VS Code testing/packaging tools. There is no verified release artifact yet.
+SCRIBE is a prerelease extension. Dependency installation is complete, and TypeScript checking, all 18 core tests, the extension build, and VSIX packaging pass. Use the committed `package-lock.json` with `npm ci` for reproducible installs.
+
+Browser editing, native VS Code integration, PDF output, and cross-platform/Remote smoke tests remain release gates. Earlier browser tests reported failures in automatic Markdown formatting and concurrent-edit recovery; those paths need a successful rerun before release. The latest browser/native test attempts were blocked by this environment's local-server and Electron sandbox restrictions. A generated VSIX is available locally for testing; packaging alone does not validate editor behavior or PDF output.
 
 ## Open a document
 
@@ -92,7 +94,7 @@ Commands: **Open in SCRIBE**, **Toggle Source**, **Open Source Beside**, **Toggl
 Use Node.js 22 and npm:
 
 ```sh
-npm install
+npm ci
 npm run check
 npm test
 npm run build
@@ -106,13 +108,6 @@ Build before pressing F5 to open the **Run SCRIBE** extension host. Try [the sam
 
 The browser suite exercises the actual editor bundle against a simulated VS Code message host. The separate extension-host suite checks real VS Code editor registration, shared source, normalization, undo/revert, and settings. Linux CI runs extension-host tests under Xvfb. Manual Windows/macOS/Linux and Remote smoke tests remain a release gate.
 
-`publisher: "scribe"` is a development placeholder; set it to an authorized Marketplace publisher before publishing. This repository is configured in package metadata as [perdiesman/scribe](https://github.com/perdiesman/scribe). No code has been pushed or published by this implementation task.
+`publisher: "scribe"` is a development placeholder; set it to an authorized Marketplace publisher before publishing. Source and issue tracking are hosted at [perdiesman/scribe](https://github.com/perdiesman/scribe).
 
-The current workspace exposes `.git` read-only. From a writable checkout, initialize/connect it with:
-
-```sh
-git init -b main
-git remote add origin git@github.com:perdiesman/scribe.git
-```
-
-Commit `package-lock.json` after the first successful complete installation, then use `npm ci` in CI. No complete lockfile could be generated in the implementation environment.
+Commit dependency updates together with `package-lock.json`. CI uses `npm ci`; generated bundles, test artifacts, and `.vsix` packages are excluded from version control.

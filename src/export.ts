@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import puppeteer, { PUPPETEER_REVISIONS } from 'puppeteer-core';
+import puppeteer from 'puppeteer-core';
+import { PUPPETEER_REVISIONS } from 'puppeteer-core/internal/revisions.js';
 import { install, computeExecutablePath, Browser } from '@puppeteer/browsers';
 import { embeddedImages } from './assets';
 import { renderMarkdown, escapeHtml } from './render';
@@ -90,7 +91,7 @@ export async function exportDocument(context: vscode.ExtensionContext, document:
           try {
             await Promise.race([ready, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Document rendering timed out.')), 30_000); })]);
           } finally { clearTimeout(timeout); }
-          return document.querySelectorAll('.render-error').length;
+          return globalThis.document.querySelectorAll('.render-error').length;
         });
         if (diagramErrors) warnings.push(`${diagramErrors} Mermaid diagram(s) could not render; their source is included.`);
         check();
