@@ -1,17 +1,20 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { minimalPatch, normalizeMarkdown, preserveMarkdown, sourceBlocks } from './markdown';
-import { validMessage, editBases, type EditChain, type Settings, type Snapshot } from './protocol';
+import { minimalPatch, normalizeMarkdown, preserveMarkdown } from './markdown';
+import { validMessage, editBases, type EditChain, type EditorMode, type Settings, type Snapshot } from './protocol';
 import { assetRoot, resolveAsset, checkedAsset } from './assets';
 import { exportDocument } from './export';
-import { escapeHtml } from './render';
+import { webviewHtml } from './webviewHtml';
 
 export function activate(context: vscode.ExtensionContext): void {
   const panels = new Map<vscode.WebviewPanel, vscode.TextDocument>();
+  const panelModes = new Map<vscode.WebviewPanel, EditorMode>();
   const queues = new Map<string, Promise<void>>();
   const origins = new Map<string, { panel: vscode.WebviewPanel; sequence: number }>();
+  const requestedModes = new Map<string, EditorMode>();
   let lastPanel: vscode.WebviewPanel | undefined;
-  let synchronizing = false;
+  const activeReadOnly = () => [...panels.keys()].some(panel => panel.active && panelModes.get(panel) === 'preview');
+  const updateReadOnlyContext = () => { void vscode.commands.executeCommand('setContext', 'scribe.readOnly', activeReadOnly()); };
   const settings = (): Settings => {
     const config = vscode.workspace.getConfiguration('scribe');
     return { autoFormatMarkdown: config.get('autoFormatMarkdown', true) === true,
@@ -23,7 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   const snapshot = (panel: vscode.WebviewPanel, document: vscode.TextDocument, acknowledgment?: number) => {
     const source = document.getText();
-    const message: Snapshot = { type: 'document', source, version: document.version, settings: settings(), acknowledgment };
+    const message: Snapshot = { type: 'document', source, version: document.version, isDirty: document.isDirty, settings: settings(), acknowledgment };
     void panel.webview.postMessage(message);
   };
   const report = (error: unknown) => {
@@ -46,19 +49,23 @@ export function activate(context: vscode.ExtensionContext): void {
     edit.replace(document.uri, new vscode.Range(document.positionAt(patch.start), document.positionAt(patch.end)), patch.text);
     if (!await vscode.workspace.applyEdit(edit)) throw new Error('The document edit could not be applied.');
   };
-  const source = async (document: vscode.TextDocument, beside = false) => {
-    if (beside) await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Beside });
-    else await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+  const showMode = async (document: vscode.TextDocument, mode: EditorMode | 'toggle') => {
+    const panel = [...panels].find(([panel, doc]) => panel.active && doc.uri.toString() === document.uri.toString())?.[0];
+    if (panel) { await panel.webview.postMessage({ type: 'mode', mode }); return; }
+    requestedModes.set(document.uri.toString(), mode === 'toggle' ? 'source' : mode);
+    await vscode.commands.executeCommand('vscode.openWith', document.uri, 'scribe.editor');
   };
   const commands = {
-    source: async (document: vscode.TextDocument) => source(document),
-    split: async (document: vscode.TextDocument) => source(document, true),
+    source: async (document: vscode.TextDocument) => showMode(document, 'toggle'),
+    split: async (document: vscode.TextDocument) => showMode(document, 'split'),
+    save: async (document: vscode.TextDocument) => { if (!await document.save()) throw new Error('The document could not be saved.'); },
     auto: async (_document?: vscode.TextDocument) => {
       const config = vscode.workspace.getConfiguration('scribe');
       const target = config.inspect('autoFormatMarkdown')?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
       await config.update('autoFormatMarkdown', !settings().autoFormatMarkdown, target);
     },
     normalize: async (document: vscode.TextDocument) => {
+      if (activeReadOnly()) return;
       enqueue(document, async () => applyText(document, normalizeMarkdown(document.getText())));
     },
     html: async (document: vscode.TextDocument) => exportDocument(context, document, 'html', settings().profile),
@@ -69,29 +76,35 @@ export function activate(context: vscode.ExtensionContext): void {
     async resolveCustomTextEditor(document, panel) {
       let chain: EditChain | undefined;
       panels.set(panel, document); lastPanel = panel;
-      panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist'), assetRoot(document.uri), vscode.Uri.joinPath(context.extensionUri, 'logo.png')] };
+      panel.webview.options = { enableScripts: true, localResourceRoots: [context.extensionUri, assetRoot(document.uri)] };
       const webUri = (name: string) => panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, name)).toString();
       const nonce = randomBytes(18).toString('base64');
-      panel.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${panel.webview.cspSource} data: https: http:; font-src data: ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'none'; base-uri 'none'; form-action 'none'"><link rel="stylesheet" href="${webUri('dist/style.css')}"><title>SCRIBE</title></head><body><header class="brand"><img src="${webUri('logo.png')}" alt="" width="36" height="36"><div><strong>SCRIBE</strong><span>Write what you see. Commit what you mean.</span></div></header><div id="toolbar" role="toolbar" aria-label="Markdown editing"></div><main id="editor" class="markdown-body" aria-label="Visual Markdown editor"></main><footer id="status" role="status" aria-live="polite">Opening ${escapeHtml(document.uri.path.split('/').at(-1) ?? 'document')}…</footer><script nonce="${nonce}" src="${webUri('dist/editor.js')}"></script></body></html>`;
+      panel.webview.html = webviewHtml({ style: webUri('dist/style.css'), script: webUri('dist/editor.js'), logo: webUri('logo.png'), cspSource: panel.webview.cspSource, nonce, title: document.uri.path.split('/').at(-1) ?? 'document' });
       const subscriptions = [
-        panel.onDidChangeViewState(() => { if (panel.active) lastPanel = panel; }),
+        panel.onDidChangeViewState(() => { if (panel.active) lastPanel = panel; updateReadOnlyContext(); }),
         panel.webview.onDidReceiveMessage(async (value: unknown) => {
           if (!validMessage(value)) return;
           try {
             switch (value.type) {
-              case 'ready': enqueue(document, async () => { chain = undefined; snapshot(panel, document); }); break;
+              case 'mode': panelModes.set(panel, value.mode); updateReadOnlyContext(); break;
+              case 'ready': enqueue(document, async () => {
+                chain = undefined; snapshot(panel, document);
+                const mode = requestedModes.get(document.uri.toString());
+                if (mode) { requestedModes.delete(document.uri.toString()); await panel.webview.postMessage({ type: 'mode', mode }); }
+              }); break;
               case 'profile': {
                 const config = vscode.workspace.getConfiguration('scribe');
                 const target = config.inspect('renderingProfile')?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
                 await config.update('renderingProfile', value.profile, target); break;
               }
               case 'edit': enqueue(document, async () => {
+                if (panelModes.get(panel) === 'preview') { snapshot(panel, document); return; }
                 const bases = editBases(value, document.version, chain);
                 if (!bases) { snapshot(panel, document); return; }
                 const key = document.uri.toString();
                 origins.set(key, { panel, sequence: value.sequence });
                 try {
-                  await applyText(document, preserveMarkdown(document.getText(), value.markdown));
+                  await applyText(document, value.mode === 'source' ? value.markdown : preserveMarkdown(document.getText(), value.markdown));
                   bases.add(document.version); chain = { version: document.version, sequence: value.sequence, bases };
                   snapshot(panel, document, value.sequence);
                 } catch (error) {
@@ -105,22 +118,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 void panel.webview.postMessage({ type: 'status', text: 'Copied to clipboard.' }); break;
               case 'recover':
                 await recover(value.markdown, 'The source changed concurrently.'); break;
-              case 'history': await vscode.commands.executeCommand(value.direction); break;
-              case 'reveal': {
-                if (synchronizing) break;
-                const editors = vscode.window.visibleTextEditors.filter(editor => editor.document.uri.toString() === document.uri.toString());
-                if (!editors.length) break;
-                const block = sourceBlocks(document.getText())[value.block];
-                if (!block) break;
-                synchronizing = true;
-                try {
-                  for (const editor of editors) {
-                    if (value.select !== false) editor.selection = new vscode.Selection(block.line, 0, block.line, 0);
-                    editor.revealRange(new vscode.Range(block.line, 0, block.endLine, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-                  }
-                } finally { setTimeout(() => { synchronizing = false; }, 100); }
-                break;
-              }
+              case 'history': if (panelModes.get(panel) !== 'preview') await vscode.commands.executeCommand(value.direction); break;
               case 'link': {
                 if (/^https?:\/\//i.test(value.href) || /^mailto:/i.test(value.href)) await vscode.env.openExternal(vscode.Uri.parse(value.href));
                 else if (!value.href.startsWith('#')) await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(resolveAsset(document.uri, value.href)));
@@ -136,7 +134,7 @@ export function activate(context: vscode.ExtensionContext): void {
           } catch (error) { report(error); snapshot(panel, document); }
         }),
       ];
-      panel.onDidDispose(() => { panels.delete(panel); subscriptions.forEach(subscription => subscription.dispose()); if (lastPanel === panel) lastPanel = undefined; });
+      panel.onDidDispose(() => { panels.delete(panel); panelModes.delete(panel); updateReadOnlyContext(); subscriptions.forEach(subscription => subscription.dispose()); if (lastPanel === panel) lastPanel = undefined; });
     },
   }, { supportsMultipleEditorsPerDocument: true, webviewOptions: { retainContextWhenHidden: true } }));
 
@@ -148,15 +146,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
     if (event.affectsConfiguration('scribe')) for (const panel of panels.keys()) void panel.webview.postMessage({ type: 'settings', settings: settings() });
   }));
-  const reveal = (editor: vscode.TextEditor, line: number, select: boolean) => {
-    if (synchronizing || ![...panels.values()].some(document => document.uri.toString() === editor.document.uri.toString())) return;
-    const blocks = sourceBlocks(editor.document.getText());
-    let block = blocks.findIndex(block => line <= block.endLine);
-    if (block < 0) block = Math.max(0, blocks.length - 1);
-    for (const [panel, document] of panels) if (document.uri.toString() === editor.document.uri.toString()) void panel.webview.postMessage({ type: 'reveal', block, select });
-  };
-  context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection(event => reveal(event.textEditor, event.selections[0].active.line, true)),
-    vscode.window.onDidChangeTextEditorVisibleRanges(event => { const line = event.visibleRanges[0]?.start.line; if (line !== undefined) reveal(event.textEditor, line, false); }));
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {
+    for (const [panel, doc] of panels) if (doc.uri.toString() === document.uri.toString()) void panel.webview.postMessage({ type: 'saved' });
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('scribe.open', async (uri?: vscode.Uri) => {
     const target = uri ?? activeDocument()?.uri;
     if (target) await vscode.commands.executeCommand('vscode.openWith', target, 'scribe.editor');
@@ -168,8 +160,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (action === 'auto') await commands.auto();
       else if (document) {
         await queues.get(document.uri.toString());
-        if (action === 'source' && ![...panels.keys()].some(panel => panel.active)) await vscode.commands.executeCommand('vscode.openWith', document.uri, 'scribe.editor');
-        else await commands[action](document);
+        await commands[action](document);
       }
     } catch (error) { report(error); }
   }));

@@ -8,6 +8,7 @@ import { install, computeExecutablePath, Browser } from '@puppeteer/browsers';
 import { embeddedImages } from './assets';
 import { renderMarkdown, escapeHtml } from './render';
 import type { Profile } from './protocol';
+import { waitForRenderer } from './pdfRenderer';
 
 let installing: Promise<string> | undefined;
 
@@ -59,7 +60,7 @@ export async function exportDocument(context: vscode.ExtensionContext, document:
   // Capture unsaved text before any asynchronous asset work or renderer installation.
   const source = document.getText();
   const title = document.uri.path.split('/').at(-1) ?? 'SCRIBE document';
-  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `SCRIBE: Export ${format.toUpperCase()}`, cancellable: true }, async (progress, token) => {
+  const warnings = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `SCRIBE: Export ${format.toUpperCase()}`, cancellable: true }, async (progress, token) => {
     const check = () => { if (token.isCancellationRequested) throw new vscode.CancellationError(); };
     const asset = (name: string) => vscode.workspace.fs.readFile(vscode.Uri.joinPath(context.extensionUri, 'dist', name)).then(bytes => Buffer.from(bytes).toString());
     const [{ html: body, warnings }, css, rawScript] = await Promise.all([
@@ -84,15 +85,7 @@ export async function exportDocument(context: vscode.ExtensionContext, document:
         page.on('request', request => { void (/^(?:data:|about:)/i.test(request.url()) ? request.continue() : request.abort()); });
         await page.emulateMediaType('print');
         await page.setContent(html, { waitUntil: 'load', timeout: 30_000 });
-        const diagramErrors = await page.evaluate(async () => {
-          const ready = (window as unknown as { scribeReady?: Promise<void> }).scribeReady;
-          if (!ready) throw new Error('The document renderer did not initialize.');
-          let timeout: ReturnType<typeof setTimeout> | undefined;
-          try {
-            await Promise.race([ready, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Document rendering timed out.')), 30_000); })]);
-          } finally { clearTimeout(timeout); }
-          return globalThis.document.querySelectorAll('.render-error').length;
-        });
+        const diagramErrors = await page.evaluate(waitForRenderer);
         if (diagramErrors) warnings.push(`${diagramErrors} Mermaid diagram(s) could not render; their source is included.`);
         check();
         bytes = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' }, timeout: 30_000 });
@@ -103,9 +96,10 @@ export async function exportDocument(context: vscode.ExtensionContext, document:
     }
     check();
     await vscode.workspace.fs.writeFile(destination, bytes);
-    if (warnings.length) {
-      const details = await vscode.window.showWarningMessage(`Exported ${format.toUpperCase()} with ${warnings.length} image warning(s).`, 'Show Details');
-      if (details) await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ content: warnings.join('\n'), language: 'plaintext' }));
-    } else await vscode.window.showInformationMessage(`Exported ${format.toUpperCase()}: ${destination.path.split('/').at(-1)}`);
+    return warnings;
   });
+  if (warnings.length) {
+    const details = await vscode.window.showWarningMessage(`Exported ${format.toUpperCase()} with ${warnings.length} rendering warning(s).`, 'Show Details');
+    if (details) await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ content: warnings.join('\n'), language: 'plaintext' }));
+  } else void vscode.window.showInformationMessage(`Exported ${format.toUpperCase()}: ${destination.path.split('/').at(-1)}`);
 }

@@ -17,8 +17,12 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('scribe.open');
   await until(() => vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputCustom);
   assert.equal(document.getText(), original);
+  const tabsBefore = vscode.window.tabGroups.all.reduce((count, group) => count + group.tabs.length, 0);
   await vscode.commands.executeCommand('scribe.openSourceBeside');
-  await until(() => vscode.window.activeTextEditor?.document === document);
+  assert.equal(vscode.window.tabGroups.all.reduce((count, group) => count + group.tabs.length, 0), tabsBefore);
+  assert.ok(vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputCustom);
+  await vscode.commands.executeCommand('scribe.toggleSource');
+  assert.equal(vscode.window.tabGroups.all.reduce((count, group) => count + group.tabs.length, 0), tabsBefore);
   assert.ok(vscode.window.tabGroups.all.some(group => group.tabs.some(tab => tab.input instanceof vscode.TabInputCustom && tab.input.uri.toString() === uri.toString())));
   await vscode.commands.executeCommand('scribe.normalize');
   await until(() => document.getText().startsWith('# Title'));

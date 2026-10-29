@@ -2,7 +2,7 @@
   "name": "scribe-markdown-editor",
   "displayName": "SCRIBE - WYSIWYG Markdown Editor",
   "description": "Write what you see. Commit what you mean. Synchronized Content Rendering & Interactive Block Editing.",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "publisher": "scribe",
   "icon": "logo.png",
   "repository": { "type": "git", "url": "https://github.com/perdiesman/scribe.git" },
@@ -21,9 +21,9 @@
     "commands": [
       { "command": "scribe.open", "title": "SCRIBE: Open in SCRIBE" },
       { "command": "scribe.toggleSource", "title": "SCRIBE: Toggle Source", "icon": "$(code)" },
-      { "command": "scribe.openSourceBeside", "title": "SCRIBE: Open Source Beside", "icon": "$(split-horizontal)" },
+      { "command": "scribe.openSourceBeside", "title": "SCRIBE: Split Editor", "icon": "$(split-horizontal)" },
       { "command": "scribe.toggleAutoMarkdown", "title": "SCRIBE: Toggle Auto Markdown" },
-      { "command": "scribe.normalize", "title": "SCRIBE: Normalize Document" },
+      { "command": "scribe.normalize", "title": "SCRIBE: Normalize Document", "enablement": "!scribe.readOnly" },
       { "command": "scribe.exportHtml", "title": "SCRIBE: Export HTML" },
       { "command": "scribe.exportPdf", "title": "SCRIBE: Export PDF" }
     ],

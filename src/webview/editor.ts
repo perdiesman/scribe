@@ -4,75 +4,232 @@ import { commonmark, updateLinkCommand, inputRules as commonInput, markInputRule
 import { gfm, inputRules as gfmInput, markInputRules as gfmMarks, pasteRules as gfmPaste } from '@milkdown/kit/preset/gfm';
 import { clipboard } from '@milkdown/kit/plugin/clipboard';
 import { cursor } from '@milkdown/kit/plugin/cursor';
+import { trailing } from '@milkdown/kit/plugin/trailing';
 import { $prose } from '@milkdown/kit/utils';
 import { Plugin, Selection } from '@milkdown/kit/prose/state';
 import { toggleMark, setBlockType, wrapIn, lift } from '@milkdown/kit/prose/commands';
 import { wrapInList, liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list';
 import { addColumnAfter, addRowAfter, deleteColumn, deleteRow, deleteTable } from '@milkdown/kit/prose/tables';
 import type { Command } from '@milkdown/kit/prose/state';
-import { markdownProcessor } from '../markdown';
+import { markdownProcessor, preserveMarkdown, lineEnding, withLineEnding, parseMarkdown, fencedCode } from '../markdown';
+import { renderMarkdown } from '../render';
+import type { Nodes } from 'mdast';
 import { projectMarkdown } from './projection';
 import { opaqueBlock, opaqueInline, codeWithMetadata, nodeViews } from './nodes';
 import { highlighting } from './highlight';
 import { autoMarkdown } from './auto';
-import type { EditorMessage, HostMessage, Settings } from '../protocol';
+import { enhance } from './enhance';
+import { formatSource, type SourceFormat } from './source';
+import { highlightMarkdownSource } from './sourceHighlight';
+import { buildToolbar, type TableAction } from './toolbar';
+import { icon } from './icons';
+import type { EditorMessage, HostMessage, Settings, EditorMode } from '../protocol';
 
-declare function acquireVsCodeApi(): { postMessage(message: EditorMessage): void };
+declare function acquireVsCodeApi(): { postMessage(message: EditorMessage): void; getState?(): { mode?: EditorMode }; setState?(state: { mode: EditorMode }): void };
 const vscode = acquireVsCodeApi();
 const send = (message: EditorMessage) => vscode.postMessage(message);
 const root = document.querySelector<HTMLElement>('#editor')!;
+const workspace = document.querySelector<HTMLElement>('#workspace')!;
+const visualPane = document.querySelector<HTMLElement>('#visual-pane')!;
+const sourcePane = document.querySelector<HTMLElement>('#source-pane')!;
+const previewPane = document.querySelector<HTMLElement>('#preview-pane')!;
+const source = document.querySelector<HTMLTextAreaElement>('#source')!;
+const sourceHighlight = document.querySelector<HTMLElement>('#source-highlight')!;
+const sourceTokens = sourceHighlight.querySelector('code')!;
 const toolbar = document.querySelector<HTMLElement>('#toolbar')!;
 const status = document.querySelector<HTMLElement>('#status')!;
-let editor: Editor | undefined, ready = false, suppress = false;
+let editor: Editor | undefined, ready = false, suppress = false, isDirty = false;
+let mode: EditorMode = vscode.getState?.()?.mode ?? 'wysiwyg';
+let pane: 'visual' | 'source' = 'visual', currentSource = '', eol = '\n';
 let settings: Settings = { autoFormatMarkdown: true, profile: 'github' };
-let version = 0, sequence = 0, dirty = false;
-const pending = new Set<number>();
-let revealing = false, lastScrollBlock = -1, scrollFrame = 0;
-let assets = 0;
+let version = 0, sequence = 0, assets = 0, scrolling = false, modeRequest = 0;
+const pending = new Set<number>(), actions: (() => void)[] = [];
 const images = new Map<number, { image: HTMLImageElement; path: string }>();
-const actions: (() => void)[] = [];
+const inSource = () => mode === 'source' || (mode === 'split' && pane === 'source');
 
 function showStatus(text: string, error = false) { status.textContent = text; status.classList.toggle('error', error); }
+function documentStatus() { showStatus(pending.size ? 'Updating Markdown…' : isDirty ? 'Unsaved changes' : 'Saved'); }
 function markdown(): string { return editor!.action(ctx => ctx.get(serializerCtx)(ctx.get(editorViewCtx).state.doc)); }
-function flush() {
-  if (!ready || !dirty) return;
-  dirty = false; pending.add(++sequence);
-  send({ type: 'edit', version, sequence, markdown: markdown() });
-  showStatus('Saving changes to the document…');
+function postEdit(text: string, mode: 'source' | 'visual') {
+  pending.add(++sequence); send({ type: 'edit', version, sequence, markdown: text, mode }); documentStatus();
 }
-function afterEdits(action: () => void) {
-  actions.push(action); flush();
-  if (!dirty && !pending.size) actions.splice(0).forEach(action => action());
+function afterEdits(action: () => void) { if (pending.size) actions.push(action); else action(); }
+function syncSourceHighlightScroll() { sourceHighlight.scrollTop = source.scrollTop; sourceHighlight.scrollLeft = source.scrollLeft; }
+function highlightSourceText() {
+  sourceTokens.innerHTML = highlightMarkdownSource(source.value) + '\n';
+  syncSourceHighlightScroll();
+}
+function updateSource(text: string) {
+  const value = text.replace(/\r\n/g, '\n');
+  if (source.value === value) return;
+  const start = source.selectionStart, end = source.selectionEnd, scroll = source.scrollTop, left = source.scrollLeft;
+  source.value = value; source.setSelectionRange(Math.min(start, value.length), Math.min(end, value.length)); source.scrollTop = scroll; source.scrollLeft = left;
+  highlightSourceText();
+}
+function renderVisual(text: string) {
+  suppress = true;
+  try {
+    editor!.action(ctx => {
+      const view = ctx.get(editorViewCtx), next = ctx.get(parserCtx)(text);
+      if (view.state.doc.eq(next)) return;
+      const selection = view.state.selection.from, tr = view.state.tr.replaceWith(0, view.state.doc.content.size, next.content);
+      tr.setSelection(Selection.near(tr.doc.resolve(Math.min(selection, tr.doc.content.size)))); view.dispatch(tr);
+    });
+  } finally { suppress = false; }
 }
 function changed() {
-  if (!ready || suppress) return;
-  dirty = true; flush();
+  if (!ready || suppress || mode === 'preview') return;
+  const serialized = markdown(); currentSource = preserveMarkdown(currentSource, serialized);
+  updateSource(currentSource); postEdit(serialized, 'visual');
+}
+function sourceChanged() {
+  if (mode === 'preview') return;
+  highlightSourceText();
+  currentSource = withLineEnding(source.value, eol); postEdit(currentSource, 'source'); renderVisual(currentSource);
+}
+function renderPreview() {
+  const scroll = previewPane.scrollTop;
+  previewPane.innerHTML = renderMarkdown(currentSource, settings.profile);
+  previewPane.querySelectorAll<HTMLImageElement>('img').forEach(image => resolveImage(image.getAttribute('src') ?? '', image));
+  const codeBlocks = new Map<string, { text: string; language: string }>();
+  const collect = (node: Nodes) => {
+    if (node.type === 'code') codeBlocks.set(node.value + '\n', { text: node.value, language: node.lang ?? '' });
+    if ('children' in node) node.children.forEach(collect);
+  };
+  collect(parseMarkdown(currentSource));
+  for (const pre of previewPane.querySelectorAll('pre')) {
+    const code = pre.querySelector('code'); if (!code) continue;
+    const block = codeBlocks.get(code.textContent ?? '') ?? { text: code.textContent ?? '', language: '' };
+    const wrapper = document.createElement('div'); wrapper.className = 'preview-code-block';
+    const controls = document.createElement('div'); controls.className = 'preview-copy-controls';
+    for (const [label, glyph, text] of [['Copy Code', 'copy', block.text], ['Copy Code Block as Markdown', 'code', fencedCode(block.text, block.language)]] as const) {
+      const button = document.createElement('button'); button.type = 'button'; button.title = label; button.setAttribute('aria-label', label); button.append(icon(glyph));
+      button.onclick = () => send({ type: 'copy', text }); controls.append(button);
+    }
+    pre.replaceWith(wrapper); wrapper.append(controls, pre);
+  }
+  previewPane.scrollTop = scroll; void enhance(previewPane);
+}
+function setMode(value: EditorMode, focus = true) {
+  const request = ++modeRequest;
+  if (value === 'preview' && pending.size) { afterEdits(() => { if (request === modeRequest) setMode(value, focus); }); return; }
+  mode = value; workspace.dataset.mode = value;
+  visualPane.hidden = value === 'source' || value === 'preview'; sourcePane.hidden = value === 'wysiwyg' || value === 'preview'; previewPane.hidden = value !== 'preview';
+  visualPane.inert = sourcePane.inert = value === 'preview';
+  vscode.setState?.({ mode }); send({ type: 'mode', mode }); rebuildToolbar();
+  requestAnimationFrame(syncSourceHighlightScroll);
+  if (value === 'preview') renderPreview();
+  else if (value !== 'source') requestAnimationFrame(() => { void enhance(visualPane); });
+  if (focus) {
+    if (value === 'preview') previewPane.focus();
+    else if (value === 'source') { pane = 'source'; source.focus(); }
+    else { pane = 'visual'; editor?.action(ctx => ctx.get(editorViewCtx).focus()); }
+  }
 }
 function resolveImage(path: string, image: HTMLImageElement) {
-  image.dataset.sourcePath = path;
-  image.removeAttribute('src');
+  image.dataset.sourcePath = path; image.removeAttribute('src');
   if (/^https?:\/\//i.test(path)) { image.src = path; return; }
   if (!path || /^[a-z][a-z\d+.-]*:/i.test(path) || path.startsWith('//')) { image.title = 'Unsupported image URL'; return; }
-  const request = ++assets;
-  images.set(request, { image, path }); send({ type: 'asset', request, path });
+  const request = ++assets; images.set(request, { image, path }); send({ type: 'asset', request, path });
 }
 function run(command: Command) {
-  editor?.action(ctx => { const view = ctx.get(editorViewCtx); command(view.state, view.dispatch, view); view.focus(); });
+  editor?.action(ctx => { const view = ctx.get(editorViewCtx); command(view.state, view.dispatch, view); if (!inSource()) view.focus(); });
 }
-function insert(markdown: string) {
+function insert(text: string) {
   editor?.action(ctx => {
-    const view = ctx.get(editorViewCtx), parsed = ctx.get(parserCtx)(markdown);
-    view.dispatch(view.state.tr.replaceSelectionWith(parsed.childCount === 1 ? parsed.firstChild! : view.state.schema.nodes.paragraph.create(), false).scrollIntoView());
-    view.focus();
+    const view = ctx.get(editorViewCtx), parsed = ctx.get(parserCtx)(text);
+    view.dispatch(view.state.tr.replaceSelectionWith(parsed.firstChild!, false).scrollIntoView()); view.focus();
   });
 }
-
+function applySource(action: SourceFormat, value?: string, label?: string) {
+  if (mode === 'preview') return;
+  const edit = formatSource(source.value, source.selectionStart, source.selectionEnd, action, value, label);
+  source.setRangeText(edit.text, edit.from, edit.to, 'end'); source.setSelectionRange(edit.start, edit.end);
+  pane = 'source'; source.focus(); sourceChanged();
+}
+function format(action: SourceFormat, value?: string) {
+  if (mode === 'preview') return;
+  if (inSource()) { applySource(action, value); return; }
+  editor?.action(ctx => {
+    const view = ctx.get(editorViewCtx), { nodes, marks } = view.state.schema;
+    const mark = { strong: 'strong', emphasis: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode' };
+    if (action in mark) run(toggleMark(marks[mark[action as keyof typeof mark]]));
+    else if (action === 'heading') run(setBlockType(Number(value) ? nodes.heading : nodes.paragraph, Number(value) ? { level: Number(value) } : undefined));
+    else if (action === 'bullet' || action === 'ordered') run(wrapInList(nodes[action === 'bullet' ? 'bullet_list' : 'ordered_list']));
+    else if (action === 'task') insert('- [ ] Task');
+    else if (action === 'quote') run(wrapIn(nodes.blockquote));
+    else if (action === 'code') run(setBlockType(nodes.code_block, { language: '' }));
+    else if (action === 'indent') run(sinkListItem(nodes.list_item));
+    else if (action === 'outdent') { if (!liftListItem(nodes.list_item)(view.state, view.dispatch)) run(lift); view.focus(); }
+  });
+}
+function formattingShortcut(event: KeyboardEvent): boolean {
+  if (mode === 'preview') return false;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+  const key = event.key.toLowerCase();
+  const action = event.shiftKey ? key === 'x' ? 'strike' : undefined : ({ b: 'strong', i: 'emphasis', e: 'inlineCode' } as const)[key as 'b' | 'i' | 'e'];
+  if (!action && (event.shiftKey || key !== 'k')) return false;
+  event.preventDefault(); event.stopPropagation();
+  if (action) format(action); else toolbar.querySelector<HTMLButtonElement>('[data-shortcut=link]')?.click();
+  return true;
+}
+function sourcePosition() {
+  const line = source.value.slice(0, source.selectionStart).split('\n').length;
+  const tree = parseMarkdown(currentSource);
+  let index = tree.children.findIndex(node => node.position!.end.line >= line);
+  if (index < 0) index = tree.children.length;
+  return { index, line, node: tree.children[index] };
+}
+function syncSourceSelection(table = false) {
+  if (!ready || (!table && mode !== 'split')) return false;
+  const { index, line, node } = sourcePosition();
+  let positioned = true;
+  suppress = true;
+  try {
+    editor!.action(ctx => {
+      const view = ctx.get(editorViewCtx); let offset = 0;
+      for (let i = 0; i < Math.min(index, view.state.doc.childCount); i++) offset += view.state.doc.child(i).nodeSize;
+      let selection = offset;
+      if (table && node?.type === 'table') {
+        const tableNode = view.state.doc.maybeChild(index);
+        if (tableNode?.type.name !== 'table') { positioned = false; showStatus('This table contains source-only markup; edit it directly in Source view.'); return; }
+        let row = node.children.findIndex(row => row.position!.end.line >= line); if (row < 0) row = node.children.length - 1;
+        if (line === node.position!.start.line + 1) row = 0;
+        const column = source.selectionStart - source.value.lastIndexOf('\n', source.selectionStart - 1);
+        let cell = node.children[row].children.findIndex(cell => cell.position!.end.column >= column); if (cell < 0) cell = node.children[row].children.length - 1;
+        selection += 1;
+        for (let i = 0; i < row; i++) selection += tableNode.child(i).nodeSize;
+        selection += 1;
+        for (let i = 0; i < cell; i++) selection += tableNode.child(row).child(i).nodeSize;
+        selection += 1;
+      }
+      view.dispatch(view.state.tr.setSelection(Selection.near(view.state.doc.resolve(Math.min(selection, view.state.doc.content.size)))));
+      if (mode === 'split') (view.nodeDOM(offset) as HTMLElement | null)?.scrollIntoView({ block: 'nearest' });
+    });
+  } finally { suppress = false; }
+  return positioned;
+}
+function tableAction(action: TableAction) {
+  if (mode === 'preview') return;
+  const snippet = '| Column 1 | Column 2 |\n| --- | --- |\n| Value | Value |';
+  if (action === 'insert') {
+    if (inSource()) {
+      source.setRangeText('\n\n' + snippet + '\n\n', source.selectionStart, source.selectionEnd, 'end'); source.focus(); sourceChanged();
+    } else insert(snippet);
+    return;
+  }
+  if (inSource()) {
+    if (sourcePosition().node?.type !== 'table') { showStatus('Place the source cursor inside a table first.'); return; }
+    if (!syncSourceSelection(true)) return;
+  }
+  run({ row: addRowAfter, column: addColumnAfter, deleteRow, deleteColumn, delete: deleteTable }[action]);
+  if (inSource()) source.focus();
+}
 async function fields(title: string, labels: string[]): Promise<string[] | undefined> {
   const dialog = document.createElement('dialog'), form = document.createElement('form'); form.method = 'dialog';
   const heading = document.createElement('h2'); heading.textContent = title; form.append(heading);
   const inputs = labels.map(label => {
-    const wrapper = document.createElement('label'), input = document.createElement('input');
-    wrapper.textContent = label; wrapper.append(input); form.append(wrapper); return input;
+    const wrapper = document.createElement('label'), input = document.createElement('input'); wrapper.textContent = label; wrapper.append(input); form.append(wrapper); return input;
   });
   const submit = document.createElement('button'); submit.textContent = 'Insert'; submit.value = 'insert';
   const cancel = document.createElement('button'); cancel.textContent = 'Cancel'; cancel.value = 'cancel';
@@ -81,170 +238,105 @@ async function fields(title: string, labels: string[]): Promise<string[] | undef
     const result = dialog.returnValue === 'insert' ? inputs.map(input => input.value) : undefined; dialog.remove(); resolve(result);
   }, { once: true }));
 }
-
-function buildToolbar() {
-  const focused = toolbar.contains(document.activeElement) ? document.activeElement?.getAttribute('aria-label') : null;
-  toolbar.replaceChildren();
-  const button = (label: string, title: string, action: () => void) => {
-    const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.title = title; button.setAttribute('aria-label', title);
-    button.onmousedown = event => event.preventDefault(); button.onclick = action; toolbar.append(button); return button;
-  };
-  const mark = (name: string) => editor?.action(ctx => { const view = ctx.get(editorViewCtx); const type = view.state.schema.marks[name]; if (type) run(toggleMark(type)); });
-  const block = (name: string, attrs?: Record<string, unknown>) => editor?.action(ctx => { const view = ctx.get(editorViewCtx); const type = view.state.schema.nodes[name]; if (type) run(setBlockType(type, attrs)); });
-  const list = (name: string) => editor?.action(ctx => { const view = ctx.get(editorViewCtx); const type = view.state.schema.nodes[name]; if (type) run(wrapInList(type)); });
-  const heading = document.createElement('select'); heading.setAttribute('aria-label', 'Paragraph or heading');
-  for (let level = 0; level <= 6; level++) heading.add(new Option(level ? `Heading ${level}` : 'Paragraph', String(level)));
-  heading.onchange = () => block(heading.value === '0' ? 'paragraph' : 'heading', heading.value === '0' ? undefined : { level: Number(heading.value) }); toolbar.append(heading);
-  button('B', 'Bold (Ctrl/Cmd+B)', () => mark('strong'));
-  button('I', 'Italic (Ctrl/Cmd+I)', () => mark('emphasis'));
-  button('S̶', 'Strikethrough', () => mark('strike_through'));
-  button('`…`', 'Inline code', () => mark('inlineCode'));
-  button('Link', 'Insert or edit link', () => { void fields('Link', ['URL']).then(values => {
-    if (values?.[0]) editor?.action(ctx => {
-      const view = ctx.get(editorViewCtx), { state } = view, link = state.schema.marks.link.create({ href: values[0] });
-      if (!state.selection.empty) view.dispatch(state.tr.addMark(state.selection.from, state.selection.to, link));
-      else if (!ctx.get(commandsCtx).call(updateLinkCommand.key, { href: values[0] })) view.dispatch(state.tr.addStoredMark(link));
-      view.focus();
-    });
-  }); });
-  button('Image', 'Insert image', () => { void fields('Image', ['Relative path or HTTPS URL', 'Alternative text']).then(values => {
-    if (values?.[0]) editor?.action(ctx => { const view = ctx.get(editorViewCtx); view.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.image.create({ src: values[0], alt: values[1], title: '' })).scrollIntoView()); view.focus(); });
-  }); });
-  button('• List', 'Bullet list', () => list('bullet_list'));
-  button('1. List', 'Numbered list', () => list('ordered_list'));
-  button('☑ Task', 'Insert task list', () => insert('- [ ] Task'));
-  button('Quote', 'Block quote', () => editor?.action(ctx => { const view = ctx.get(editorViewCtx); run(wrapIn(view.state.schema.nodes.blockquote)); }));
-  button('Code', 'Code block', () => block('code_block', { language: '' }));
-  button('Table', 'Insert table', () => insert('| Column 1 | Column 2 |\n| --- | --- |\n| Value | Value |'));
-  button('+ Row', 'Add table row', () => run(addRowAfter));
-  button('+ Column', 'Add table column', () => run(addColumnAfter));
-  button('− Row', 'Delete table row', () => run(deleteRow));
-  button('− Column', 'Delete table column', () => run(deleteColumn));
-  button('− Table', 'Delete table', () => run(deleteTable));
-  button('Outdent', 'Outdent list or block', () => editor?.action(ctx => { const view = ctx.get(editorViewCtx); if (!liftListItem(view.state.schema.nodes.list_item)(view.state, view.dispatch)) run(lift); view.focus(); }));
-  button('Indent', 'Indent list item', () => editor?.action(ctx => run(sinkListItem(ctx.get(editorViewCtx).state.schema.nodes.list_item))));
-  const auto = button(settings.autoFormatMarkdown ? 'Auto Markdown: On' : 'Auto Markdown: Off', 'Toggle automatic Markdown formatting; turn off to type literal Markdown', () => afterEdits(() => send({ type: 'command', command: 'auto' })));
-  auto.setAttribute('aria-pressed', String(settings.autoFormatMarkdown)); auto.className = 'auto-toggle';
-  const profile = document.createElement('select'); profile.setAttribute('aria-label', 'Rendering profile');
-  profile.add(new Option('GitHub', 'github')); profile.add(new Option('GitLab', 'gitlab')); profile.value = settings.profile;
-  profile.onchange = () => send({ type: 'profile', profile: profile.value as Settings['profile'] }); toolbar.append(profile);
-  for (const [label, command] of [['Source', 'source'], ['Split', 'split'], ['Normalize', 'normalize'], ['HTML', 'html'], ['PDF', 'pdf']] as const) {
-    button(label, `${label === 'Normalize' ? 'Normalize Document (undoable)' : label}`, () => afterEdits(() => send({ type: 'command', command })));
-  }
-  const controls = Array.from(toolbar.querySelectorAll<HTMLElement>('button,select'));
-  const focusIndex = Math.max(0, controls.findIndex(control => control.getAttribute('aria-label') === focused));
-  controls.forEach((control, i) => { control.tabIndex = i === focusIndex ? 0 : -1; });
-  if (focused) controls[focusIndex]?.focus();
-  toolbar.onkeydown = event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || event.target instanceof HTMLSelectElement) return;
-    event.preventDefault(); const current = controls.indexOf(document.activeElement as HTMLElement);
-    const index = event.key === 'Home' ? 0 : event.key === 'End' ? controls.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + controls.length) % controls.length;
-    controls.forEach((control, i) => { control.tabIndex = i === index ? 0 : -1; }); controls[index].focus();
-  };
+function rebuildToolbar() {
+  buildToolbar(toolbar, settings, mode, {
+    format, table: tableAction, mode: setMode,
+    command: command => afterEdits(() => send({ type: 'command', command })),
+    profile: profile => send({ type: 'profile', profile }),
+    link: () => { const raw = inSource(); void fields('Link', ['URL']).then(values => {
+      if (!values?.[0]) return;
+      if (raw) { applySource('link', values[0]); return; }
+      editor?.action(ctx => {
+        const view = ctx.get(editorViewCtx), { state } = view, link = state.schema.marks.link.create({ href: values[0] });
+        if (!state.selection.empty) view.dispatch(state.tr.addMark(state.selection.from, state.selection.to, link));
+        else if (!ctx.get(commandsCtx).call(updateLinkCommand.key, { href: values[0] })) view.dispatch(state.tr.addStoredMark(link)); view.focus();
+      });
+    }); },
+    image: () => { const raw = inSource(); void fields('Image', ['Relative path or HTTPS URL', 'Alternative text']).then(values => {
+      if (!values?.[0]) return;
+      if (raw) { applySource('image', values[0], values[1]); return; }
+      editor?.action(ctx => { const view = ctx.get(editorViewCtx); view.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.image.create({ src: values[0], alt: values[1], title: '' })).scrollIntoView()); view.focus(); });
+    }); },
+  });
 }
-
 async function initialize() {
   const disabled = new Set([...commonInput, ...commonMarks, ...gfmInput, ...gfmMarks, ...gfmPaste]);
   editor = await Editor.make().config(ctx => {
     ctx.set(rootCtx, root); ctx.set(defaultValueCtx, '');
     ctx.update(remarkStringifyOptionsCtx, options => ({ ...options, bullet: '-' as const, emphasis: '*' as const, strong: '*' as const, fences: true, listItemIndent: 'one' as const }));
   }).use($prose(ctx => autoMarkdown(ctx, () => settings.autoFormatMarkdown, direction => afterEdits(() => send({ type: 'history', direction })))))
-    .use(commonmark.filter(plugin => !disabled.has(plugin)))
-    .use(gfm.filter(plugin => !disabled.has(plugin)))
+    .use(commonmark.filter(plugin => !disabled.has(plugin))).use(gfm.filter(plugin => !disabled.has(plugin)))
     .use(codeWithMetadata).use(opaqueBlock).use(opaqueInline).use(nodeViews(send, () => settings, resolveImage))
-    .use($prose(highlighting))
-    .use(clipboard).use(cursor)
+    .use($prose(highlighting)).use(clipboard).use(cursor).use(trailing)
     .use($prose(() => new Plugin({ view: () => ({ update(view, previous) {
       if (!view.state.doc.eq(previous.doc)) changed();
-      if (!view.state.selection.eq(previous.selection) && view.hasFocus() && !suppress) {
-        send({ type: 'reveal', block: view.state.selection.$from.index(0) });
+      if (mode === 'split' && !suppress && view.hasFocus() && !view.state.selection.eq(previous.selection)) {
+        const node = parseMarkdown(currentSource).children[view.state.selection.$from.index(0)];
+        const offset = node ? currentSource.slice(0, node.position!.start.offset).replace(/\r\n/g, '\n').length : source.value.length;
+        source.setSelectionRange(offset, offset);
       }
     } }) }))).create();
   editor.action(ctx => {
-    // Use a source-preserving AST projection; the default parser can discard unsupported syntax.
     const processor = markdownProcessor().use(function () { this.parser = projectMarkdown; });
     ctx.set(parserCtx, ParserState.create(ctx.get(schemaCtx), processor));
     const view = ctx.get(editorViewCtx); view.dom.setAttribute('aria-label', 'Markdown document'); view.dom.setAttribute('role', 'textbox'); view.dom.setAttribute('aria-multiline', 'true');
   });
-  root.addEventListener('click', event => {
-    const link = (event.target as Element).closest('a');
-    if (link) {
-      event.preventDefault(); const href = link.getAttribute('href') ?? '';
-      if (href.startsWith('#')) document.getElementById(href.slice(1))?.scrollIntoView({ block: 'center' });
-      else afterEdits(() => send({ type: 'link', href }));
-    }
+  root.addEventListener('focusin', () => { pane = 'visual'; });
+  root.addEventListener('keydown', event => { if (!(event.target as Element).closest('input,textarea')) formattingShortcut(event); }, true);
+  source.addEventListener('focus', () => { pane = 'source'; });
+  source.addEventListener('input', sourceChanged);
+  source.addEventListener('click', () => syncSourceSelection()); source.addEventListener('keyup', () => syncSourceSelection());
+  source.addEventListener('keydown', event => {
+    if (formattingShortcut(event)) return;
+    const mod = event.ctrlKey || event.metaKey;
+    if (mod && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
+      event.preventDefault(); afterEdits(() => send({ type: 'history', direction: event.shiftKey || event.key.toLowerCase() === 'y' ? 'redo' : 'undo' }));
+    } else if (event.key === 'Tab' && !mod && !event.altKey) { event.preventDefault(); applySource(event.shiftKey ? 'outdent' : 'indent'); }
+    else if (event.key === 'Escape') { event.preventDefault(); toolbar.querySelector<HTMLElement>('[aria-label="Source view"]')?.focus(); }
   });
-  window.addEventListener('scroll', () => {
-    cancelAnimationFrame(scrollFrame);
-    scrollFrame = requestAnimationFrame(() => {
-      if (revealing || suppress) return;
-      editor?.action(ctx => {
-        const view = ctx.get(editorViewCtx), top = toolbar.getBoundingClientRect().bottom + 8;
-        let visible = -1;
-        view.state.doc.forEach((_node, offset, index) => {
-          const dom = view.nodeDOM(offset);
-          if (visible < 0 && dom instanceof HTMLElement && dom.getBoundingClientRect().bottom > top) visible = index;
-        });
-        if (visible >= 0 && visible !== lastScrollBlock) { lastScrollBlock = visible; send({ type: 'reveal', block: visible, select: false }); }
-      });
-    });
-  }, { passive: true });
-  buildToolbar(); ready = true;
+  source.setAttribute('aria-description', 'Tab indents, Shift+Tab outdents, and Escape focuses the toolbar.');
+  window.addEventListener('keydown', event => {
+    if (mode === 'preview' && (event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) { event.preventDefault(); event.stopPropagation(); return; }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); afterEdits(() => send({ type: 'command', command: 'save' })); }
+  });
+  const syncScroll = (from: HTMLElement, to: HTMLElement) => {
+    if (mode !== 'split' || scrolling) return; scrolling = true;
+    to.scrollTop = from.scrollTop / Math.max(1, from.scrollHeight - from.clientHeight) * Math.max(0, to.scrollHeight - to.clientHeight);
+    requestAnimationFrame(() => { scrolling = false; });
+  };
+  source.addEventListener('scroll', () => { syncSourceHighlightScroll(); syncScroll(source, visualPane); }, { passive: true });
+  visualPane.addEventListener('scroll', () => syncScroll(visualPane, source), { passive: true });
+  for (const container of [root, previewPane]) container.addEventListener('click', event => {
+    const link = (event.target as Element).closest('a'); if (!link) return;
+    event.preventDefault(); const href = link.getAttribute('href') ?? '';
+    if (href.startsWith('#')) container.querySelector('#' + CSS.escape(href.slice(1)))?.scrollIntoView({ block: 'center' });
+    else afterEdits(() => send({ type: 'link', href }));
+  });
+  ready = true; setMode(mode, false);
 }
-
 async function receive(message: HostMessage) {
   if (message.type === 'status') { showStatus(message.text, message.error); return; }
+  if (message.type === 'saved') { isDirty = false; documentStatus(); return; }
+  if (message.type === 'mode') { setMode(message.mode === 'toggle' ? mode === 'source' ? 'wysiwyg' : 'source' : message.mode); return; }
   if (message.type === 'asset') {
-    const pending = images.get(message.request); images.delete(message.request);
-    if (pending && pending.image.dataset.sourcePath === pending.path) {
-      if (message.uri) pending.image.src = message.uri;
-      else pending.image.title = message.error ?? 'Image unavailable';
-    }
-    return;
+    const asset = images.get(message.request); images.delete(message.request);
+    if (asset && asset.image.dataset.sourcePath === asset.path) { if (message.uri) asset.image.src = message.uri; else asset.image.title = message.error ?? 'Image unavailable'; } return;
   }
-  if (message.type === 'settings') {
-    settings = message.settings; root.className = `markdown-body profile-${settings.profile}`;
-    if (ready) buildToolbar(); return;
-  }
-  if (message.type === 'reveal') {
-    revealing = true; lastScrollBlock = message.block;
-    editor?.action(ctx => {
-      const view = ctx.get(editorViewCtx); let offset = 0;
-      for (let i = 0; i < Math.min(message.block, view.state.doc.childCount); i++) offset += view.state.doc.child(i).nodeSize;
-      suppress = true;
-      try { if (message.select !== false) view.dispatch(view.state.tr.setSelection(Selection.near(view.state.doc.resolve(offset)))); (view.nodeDOM(offset) as HTMLElement | null)?.scrollIntoView({ block: 'nearest' }); }
-      finally { suppress = false; }
-    }); setTimeout(() => { revealing = false; }, 150); return;
-  }
-  settings = message.settings; version = message.version;
+  if (message.type === 'settings') { settings = message.settings; root.className = `markdown-body profile-${settings.profile}`; if (ready) { rebuildToolbar(); if (mode === 'preview') renderPreview(); } return; }
+  settings = message.settings; version = message.version; isDirty = message.isDirty;
   if (!editor) await initialize();
   root.className = `markdown-body profile-${settings.profile}`;
   if (message.acknowledgment !== undefined) {
-    pending.delete(message.acknowledgment); flush();
-    if (!dirty && !pending.size) { showStatus('All changes are in the document.'); actions.splice(0).forEach(action => action()); }
-    return;
+    pending.delete(message.acknowledgment);
+    if (!pending.size) { currentSource = message.source; updateSource(currentSource); documentStatus(); actions.splice(0).forEach(action => action()); } return;
   }
-  if (dirty || pending.size) {
-    send({ type: 'recover', markdown: markdown() });
-    dirty = false; pending.clear(); actions.length = 0;
-  }
-  suppress = true;
-  try {
-    editor!.action(ctx => {
-      const view = ctx.get(editorViewCtx), next = ctx.get(parserCtx)(message.source);
-      if (!view.state.doc.eq(next)) {
-        const selection = view.state.selection.from, tr = view.state.tr.replaceWith(0, view.state.doc.content.size, next.content);
-        tr.setSelection(Selection.near(tr.doc.resolve(Math.min(selection, tr.doc.content.size)))); view.dispatch(tr);
-      }
-    });
-  } finally { suppress = false; }
-  buildToolbar(); showStatus(settings.autoFormatMarkdown ? 'Ready · Markdown shortcuts and Enter formatting are on.' : 'Ready · Auto Markdown is off. Typed Markdown stays literal.');
+  if (pending.size) { send({ type: 'recover', markdown: currentSource }); pending.clear(); actions.length = 0; }
+  currentSource = message.source; eol = lineEnding(currentSource); updateSource(currentSource); renderVisual(currentSource);
+  if (mode === 'preview') renderPreview();
+  rebuildToolbar(); documentStatus();
 }
-
 let receiving = Promise.resolve();
 window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
-  receiving = receiving.then(() => receive(event.data)).catch(error => { showStatus(`Editor error: ${error instanceof Error ? error.message : String(error)}. Your Markdown source is unchanged; use Reopen Editor With → Text Editor to recover.`, true); });
+  receiving = receiving.then(() => receive(event.data)).catch(error => showStatus(`Editor error: ${error instanceof Error ? error.message : String(error)}. Use Reopen Editor With → Text Editor to access the Markdown.`, true));
 });
-window.addEventListener('blur', flush);
-window.addEventListener('beforeunload', flush);
 send({ type: 'ready' });

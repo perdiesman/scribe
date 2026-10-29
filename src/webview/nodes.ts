@@ -6,6 +6,9 @@ import { fencedCode } from '../markdown';
 import { renderMarkdown } from '../render';
 import { enhance } from './enhance';
 import type { EditorMessage, Settings } from '../protocol';
+import { TextSelection } from '@milkdown/kit/prose/state';
+import { continueAfterCode } from './auto';
+import { icon } from './icons';
 
 function sourceNode(inline: boolean) {
   return $node(inline ? 'scribe_inline' : 'scribe_block', () => ({
@@ -79,7 +82,7 @@ export function nodeViews(send: (message: EditorMessage) => void, settings: () =
     };
     input.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); cancel.click(); } if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); apply.click(); } };
     dom.append(preview, edit, input, apply, cancel); draw();
-    return { dom, update(next) { if (next.type !== node.type) return false; node = next; draw(); return true; },
+    return { dom, update(next) { if (next.type !== node.type) return false; const changed = !next.eq(node); node = next; if (changed) draw(); return true; },
       stopEvent: event => !(event.target instanceof Element && event.target.closest('a')),
       ignoreMutation: () => true, destroy() { disposed = true; } };
   };
@@ -90,6 +93,12 @@ export function nodeViews(send: (message: EditorMessage) => void, settings: () =
     const language = document.createElement('input'); language.setAttribute('aria-label', 'Code language'); language.placeholder = 'plain text';
     const copy = document.createElement('button'); copy.textContent = 'Copy Code'; copy.type = 'button';
     const copyMarkdown = document.createElement('button'); copyMarkdown.textContent = 'Copy Markdown'; copyMarkdown.title = 'Copy Code Block as Markdown'; copyMarkdown.type = 'button';
+    const leave = document.createElement('button'); leave.type = 'button'; leave.append(icon('exit'));
+    leave.title = 'Continue after code block (Ctrl/Cmd+Enter)'; leave.setAttribute('aria-label', leave.title);
+    leave.onclick = () => {
+      const pos = getPos();
+      if (pos !== undefined) { view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos + 1))); continueAfterCode(view); view.focus(); }
+    };
     const menu = document.createElement('div'); menu.className = 'code-menu'; menu.hidden = true; menu.setAttribute('role', 'menu');
     const menuCode = document.createElement('button'), menuMarkdown = document.createElement('button');
     for (const button of [menuCode, menuMarkdown]) { button.type = 'button'; button.setAttribute('role', 'menuitem'); }
@@ -102,7 +111,8 @@ export function nodeViews(send: (message: EditorMessage) => void, settings: () =
       diagram.hidden = language.value !== 'mermaid';
       if (!diagram.hidden) {
         const stage = document.createElement('div'); stage.innerHTML = renderMarkdown(fencedCode(node.textContent, 'mermaid'), settings().profile);
-        void enhance(stage).then(() => { if (id === generation) diagram.replaceChildren(...stage.childNodes); });
+        diagram.replaceChildren(...stage.childNodes);
+        requestAnimationFrame(() => { if (id === generation && dom.isConnected) void enhance(diagram); });
       }
     };
     language.onchange = () => { const pos = getPos(); if (pos !== undefined) view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, language: language.value })); };
@@ -116,8 +126,8 @@ export function nodeViews(send: (message: EditorMessage) => void, settings: () =
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); (document.activeElement === menuCode ? menuMarkdown : menuCode).focus(); }
     };
     dom.oncontextmenu = event => { event.preventDefault(); menu.hidden = false; menu.style.left = `${event.clientX}px`; menu.style.top = `${event.clientY}px`; menuCode.focus(); };
-    controls.append(language, copy, copyMarkdown, menu); dom.append(controls, pre, diagram); draw();
-    return { dom, contentDOM, update(next) { if (next.type !== node.type) return false; node = next; draw(); return true; },
+    controls.append(language, copy, copyMarkdown, leave, menu); dom.append(controls, pre, diagram); draw();
+    return { dom, contentDOM, update(next) { if (next.type !== node.type) return false; const changed = !next.eq(node); node = next; if (changed) draw(); return true; },
       stopEvent: event => controls.contains(event.target as globalThis.Node),
       ignoreMutation: mutation => mutation.type !== 'selection' && !contentDOM.contains(mutation.target) && mutation.target !== contentDOM,
       destroy() { generation++; document.removeEventListener('click', closeMenu); } };
@@ -127,7 +137,7 @@ export function nodeViews(send: (message: EditorMessage) => void, settings: () =
     const dom = document.createElement('img');
     const draw = () => { dom.alt = node.attrs.alt ?? ''; dom.title = node.attrs.title ?? ''; resolveImage(node.attrs.src, dom); };
     draw();
-    return { dom, update(next) { if (next.type !== node.type) return false; node = next; draw(); return true; } };
+    return { dom, update(next) { if (next.type !== node.type) return false; const changed = !next.eq(node); node = next; if (changed) draw(); return true; } };
   });
   const item = $view(listItemSchema.node, () => (initial, view, getPos) => {
     let node = initial;

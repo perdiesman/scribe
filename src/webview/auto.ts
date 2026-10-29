@@ -1,5 +1,5 @@
 import { Plugin, TextSelection, Selection } from '@milkdown/kit/prose/state';
-import { splitBlock } from '@milkdown/kit/prose/commands';
+import { splitBlock, exitCode } from '@milkdown/kit/prose/commands';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import type { Ctx } from '@milkdown/kit/ctx';
 import { parserCtx } from '@milkdown/kit/core';
@@ -14,6 +14,12 @@ export function autoMarkdown(ctx: Ctx, enabled: () => boolean, history: (directi
     handleKeyDown(view, event) {
       if ((event.ctrlKey || event.metaKey) && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
         event.preventDefault(); history(event.shiftKey || event.key.toLowerCase() === 'y' ? 'redo' : 'undo'); return true;
+      }
+      const { $from, empty } = view.state.selection;
+      if (!view.composing && !event.isComposing && empty && $from.parent.type.spec.code) {
+        const after = $from.after(), next = view.state.doc.nodeAt(after);
+        const atEnd = $from.parentOffset === $from.parent.content.size && (after === view.state.doc.content.size || (next?.type.name === 'paragraph' && !next.content.size));
+        if ((event.key === 'Enter' && (event.ctrlKey || event.metaKey)) || (event.key === 'ArrowDown' && atEnd && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey)) return continueAfterCode(view);
       }
       if (!enabled() || view.composing || event.isComposing || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false;
       return commitOnEnter(view, parse);
@@ -73,9 +79,20 @@ export function autoMarkdown(ctx: Ctx, enabled: () => boolean, history: (directi
   } });
 }
 
+export function continueAfterCode(view: EditorView): boolean {
+  const { $from } = view.state.selection;
+  if (!$from.parent.type.spec.code) return false;
+  const end = $from.after(), next = view.state.doc.nodeAt(end);
+  if (next?.type.name === 'paragraph' && !next.content.size) {
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, end + 1)).scrollIntoView());
+    return true;
+  }
+  return exitCode(view.state, view.dispatch);
+}
+
 function commitOnEnter(view: EditorView, parse: (text: string) => Node): boolean {
   const { state } = view, { $from, empty } = state.selection;
-  if (!empty || !$from.depth || $from.parent.type.spec.code || $from.parentOffset !== $from.parent.content.size) return false;
+  if (!empty || !$from.depth || $from.parent.type.name !== 'paragraph' || $from.parentOffset !== $from.parent.content.size) return false;
   const parent = $from.parent;
   let plain = true;
   parent.forEach(node => { if ((!node.isText && node.type.name !== 'hardbreak') || node.marks.length) plain = false; });

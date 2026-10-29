@@ -10,7 +10,11 @@ import { renderMarkdown } from '../src/render';
 import { projectMarkdown } from '../src/webview/projection';
 import { checkedAsset, embeddedImages, resolveAsset } from '../src/assets';
 import { Uri, workspaceRoot } from './vscode-stub';
+import { exportUI } from './vscode-stub';
 import type * as vscode from 'vscode';
+import './editor.test';
+import { exportDocument } from '../src/export';
+import { runInNewContext } from 'node:vm';
 
 test('opening without edits leaves mixed Markdown byte-for-byte unchanged', () => {
   const source = '\r\nTitle\r\n=====\r\n\r\n*   A\r\n*   B\r\n\r\n[link][ref]\r\n\r\n[ref]: https://example.com "Title"\r\n\r\n<!-- keep -->\r\n';
@@ -83,8 +87,8 @@ test('source blocks have accurate zero-based positions', () => {
 });
 
 test('webview boundary rejects unknown and malformed messages', () => {
-  for (const message of [null, {}, { type: 'command', command: 'executeShell' }, { type: 'edit', version: -1, sequence: 1, markdown: '' }, { type: 'copy', text: 1 }, { type: 'profile', profile: 'evil' }]) assert.equal(validMessage(message), false);
-  for (const message of [{ type: 'ready' }, { type: 'edit', version: 1, sequence: 1, markdown: '# Hi' }, { type: 'command', command: 'auto' }, { type: 'profile', profile: 'gitlab' }]) assert.equal(validMessage(message), true);
+  for (const message of [null, {}, { type: 'mode', mode: 'invalid' }, { type: 'command', command: 'executeShell' }, { type: 'edit', version: -1, sequence: 1, markdown: '' }, { type: 'edit', version: 1, sequence: 1, markdown: '', mode: 'invalid' }, { type: 'copy', text: 1 }, { type: 'profile', profile: 'evil' }]) assert.equal(validMessage(message), false);
+  for (const message of [{ type: 'ready' }, { type: 'mode', mode: 'preview' }, { type: 'mode', mode: 'wysiwyg' }, { type: 'edit', version: 1, sequence: 1, markdown: '# Hi' }, { type: 'edit', version: 1, sequence: 1, markdown: '# Hi', mode: 'source' }, { type: 'command', command: 'save' }, { type: 'command', command: 'auto' }, { type: 'profile', profile: 'gitlab' }]) assert.equal(validMessage(message), true);
 });
 
 test('queued edits accept their own version chain and reject concurrent or reordered updates', () => {
@@ -160,4 +164,31 @@ test('exports embed local assets and report remote, missing, oversized, or unsup
     assert.ok(!pdf.html.includes('src="https://'));
     assert.ok(pdf.warnings.some(warning => warning.includes('32 MB')));
   } finally { workspaceRoot(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('HTML export finishes progress without waiting for its completion toast to be dismissed', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'scribe-export-'));
+  try {
+    await mkdir(join(directory, 'dist'));
+    await writeFile(join(directory, 'dist', 'style.css'), 'body{color:black}');
+    await writeFile(join(directory, 'dist', 'render.js'), 'globalThis.scribeReady=Promise.resolve();');
+    exportUI.destination = Uri.file(join(directory, 'export.html')); exportUI.notifications.length = 0;
+    const context = { extensionUri: Uri.file(directory) } as unknown as vscode.ExtensionContext;
+    const document = { uri: Uri.file(join(directory, 'readme.md')), getText: () => '# Unsaved content' } as unknown as vscode.TextDocument;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([exportDocument(context, document, 'html', 'github'), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Export waited for notification dismissal')), 2000); })]);
+    } finally { clearTimeout(timeout); }
+    assert.equal(exportUI.progressActive, false);
+    assert.ok(readFileSync(exportUI.destination.path, 'utf8').includes('Unsaved content'));
+    assert.ok(exportUI.notifications.some(notification => notification.message.startsWith('Exported HTML:') && !notification.progressActive));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('minified PDF callback runs in an isolated browser scope without extension-host variables', async () => {
+  const probe = runInNewContext(readFileSync(process.env.SCRIBE_PDF_PROBE!, 'utf8') + ';ScribePdfProbe.waitForRenderer;');
+  const callback = `(${probe.toString()})()`;
+  const result = await runInNewContext(callback, { scribeReady: Promise.resolve(), document: { querySelectorAll: () => ({ length: 2 }) }, setTimeout, clearTimeout });
+  assert.equal(result, 2);
+  await assert.rejects(runInNewContext(callback, { document: {}, setTimeout, clearTimeout }), /renderer did not initialize/);
 });

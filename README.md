@@ -8,19 +8,25 @@ SCRIBE stands for **Synchronized Content Rendering & Interactive Block Editing**
 
 ## Development status
 
-SCRIBE is a prerelease extension. Dependency installation is complete, and TypeScript checking, all 18 core tests, the extension build, and VSIX packaging pass. Use the committed `package-lock.json` with `npm ci` for reproducible installs.
+SCRIBE is a prerelease extension. TypeScript checking and all 28 core/regression tests pass. Use the committed `package-lock.json` with `npm ci` for reproducible installs.
 
-Browser editing, native VS Code integration, PDF output, and cross-platform/Remote smoke tests remain release gates. Earlier browser tests reported failures in automatic Markdown formatting and concurrent-edit recovery; those paths need a successful rerun before release. The latest browser/native test attempts were blocked by this environment's local-server and Electron sandbox restrictions. A generated VSIX is available locally for testing; packaging alone does not validate editor behavior or PDF output.
+Browser editing, native VS Code integration, PDF output, and cross-platform/Remote smoke tests remain release gates. The automated browser/native tests are blocked in the implementation environment by local-server and Electron restrictions. First-use fixes have regression coverage, including heading preservation, code-block exits, source formatting, HTML progress completion, and isolated PDF callback execution. Packaging alone does not validate complete editor behavior or PDF output.
 
 ## Open a document
 
 Run **SCRIBE: Open in SCRIBE**, or choose **Reopen Editor With → SCRIBE** on a `.md` or `.markdown` file. SCRIBE is optional; it does not replace your default Markdown editor.
 
-Use **Source** to switch to native VS Code Markdown editing, and **Split** to open editable source beside the visual document. Both views share the same file, save state, and undo history. Selection and scrolling synchronize at block boundaries. The native editor title has a source toggle to return to SCRIBE.
+Use **Source view**, **WYSIWYG view**, **Split view**, or **Read-only preview** in the toolbar. All four stay inside the same SCRIBE tab. Split displays editable Markdown beside the visual editor, with synchronized selection and scrolling. Both editing panes share the same file, save state, undo history, and toolbar. Formatting actions apply to the focused pane: Markdown syntax in Source, rich formatting in WYSIWYG.
+
+**Read-only preview** shows the rendered document without typing or source-edit controls, similar to a repository Markdown page. Formatting buttons, editing menus, Normalize, and SCRIBE undo/redo are disabled. All view-switch buttons stay active, along with rendering-profile selection, code copying, and HTML/PDF export. Pending edits reach the document before entering preview; switching views does not discard them.
+
+The status bar shows **Unsaved changes** until the VS Code document is saved, then **Saved**. Use Ctrl/Cmd+S to save.
 
 ## Write visually, or type Markdown
 
-Use the toolbar for headings, bold, italic, strikethrough, code, links, images, lists, tasks, quotes, and tables. Table controls add or remove rows and columns. Indent/Outdent adjusts list nesting.
+The compact toolbar shares a row with the SCRIBE branding when there is room and wraps underneath in narrower windows. Its icons have tooltips and accessible labels. Use its heading menu, formatting buttons, and **Table actions** menu to insert tables or add/remove rows and columns. Controls follow the VS Code light, dark, and high-contrast themes.
+
+Source and Split views highlight Markdown syntax as you type. The source remains plain editable Markdown, with colors following the editor theme.
 
 With **Auto Markdown: On**:
 
@@ -33,6 +39,17 @@ With **Auto Markdown: On**:
 Turn **Auto Markdown: Off** in the toolbar to type Markdown characters literally. This disables automatic space, delimiter, and Enter conversions. Existing formatting and explicit toolbar actions still work; Enter continues existing lists normally. The toggle never rewrites the document. It persists through `scribe.autoFormatMarkdown` and updates open SCRIBE editors. Toolbar preferences use an existing workspace override when present; otherwise they save to user settings.
 
 Use Ctrl/Cmd+Z for undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y for redo. Conversion, normalization, and source edits participate in VS Code's document history.
+
+| Shortcut | Action in either pane |
+| --- | --- |
+| Ctrl/Cmd+B | Toggle bold |
+| Ctrl/Cmd+I | Toggle italic |
+| Ctrl/Cmd+E | Toggle inline code |
+| Ctrl/Cmd+Shift+X | Toggle strikethrough |
+| Ctrl/Cmd+K | Insert/edit a link |
+| Ctrl/Cmd+S | Save |
+
+In a visual code block, Ctrl/Cmd+Enter moves to a paragraph after it. Down Arrow at the end also exits to an available blank paragraph. You can click the line below the block or use its **Continue after code block** button. Regular Enter keeps writing code. In Source, Tab/Shift+Tab indent/outdent, and Escape focuses the toolbar.
 
 ## Keep meaningful Git diffs
 
@@ -87,7 +104,7 @@ Cancelling stops the export immediately. If the first-use renderer download is a
 | `scribe.autoFormatMarkdown` | `true` | Automatically convert typed Markdown |
 | `scribe.renderingProfile` | `github` | `github` or `gitlab` local rendering profile |
 
-Commands: **Open in SCRIBE**, **Toggle Source**, **Open Source Beside**, **Toggle Auto Markdown**, **Normalize Document**, **Export HTML**, and **Export PDF**, all prefixed with **SCRIBE:**.
+Commands: **Open in SCRIBE**, **Toggle Source**, **Split Editor**, **Toggle Auto Markdown**, **Normalize Document**, **Export HTML**, and **Export PDF**, all prefixed with **SCRIBE:**.
 
 ## Build and test
 
