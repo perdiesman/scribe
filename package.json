@@ -4,7 +4,7 @@
   "description": "Write what you see. Commit what you mean. Synchronized Content Rendering & Interactive Block Editing.",
   "version": "0.1.4",
   "publisher": "MitchellBroughton",
-  "icon": "logo.png",
+  "icon": "icon.png",
   "repository": { "type": "git", "url": "https://github.com/perdiesman/scribe.git" },
   "homepage": "https://github.com/perdiesman/scribe",
   "bugs": { "url": "https://github.com/perdiesman/scribe/issues" },

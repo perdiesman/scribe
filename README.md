@@ -125,6 +125,6 @@ Build before pressing F5 to open the **Run SCRIBE** extension host. Try [the sam
 
 The browser suite exercises the actual editor bundle against a simulated VS Code message host. The separate extension-host suite checks real VS Code editor registration, shared source, normalization, undo/revert, and settings. Linux CI runs extension-host tests under Xvfb. Manual Windows/macOS/Linux and Remote smoke tests remain a release gate.
 
-`publisher: "scribe"` is a development placeholder; set it to an authorized Marketplace publisher before publishing. Source and issue tracking are hosted at [perdiesman/scribe](https://github.com/perdiesman/scribe).
+The Marketplace publisher is `MitchellBroughton` (extension ID: `MitchellBroughton.scribe-markdown-editor`). Source and issue tracking are hosted at [perdiesman/scribe](https://github.com/perdiesman/scribe).
 
 Commit dependency updates together with `package-lock.json`. CI uses `npm ci`; generated bundles, test artifacts, and `.vsix` packages are excluded from version control.

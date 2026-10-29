@@ -39,7 +39,7 @@ test('Auto Markdown off keeps all typed syntax literal and persists across reloa
   await expect(editor).toContainText('# Literal **bold**');
   await expect.poll(async () => (await state()).source).toContain('Literal');
   await page.reload(); await expect(page.getByRole('button', { name: /Toggle automatic Markdown/ })).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('.ProseMirror h1,strong')).toHaveCount(0);
+  await expect(editor.locator('h1,strong')).toHaveCount(0);
 });
 
 test('toggling never edits the document and preserves existing rich formatting', async ({ page }) => {

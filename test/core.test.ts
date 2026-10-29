@@ -124,7 +124,10 @@ test('front matter is omitted from rendered output; code is escaped and highligh
 
 test('logo, commands, setting, and repository metadata are packaged', () => {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-  assert.equal(pkg.icon, 'logo.png'); assert.ok(readFileSync(pkg.icon).length > 0);
+  const icon = readFileSync(pkg.icon);
+  assert.ok(icon.length > 0 && icon.length <= 1024 * 1024, 'Marketplace icon must fit within 1 MB');
+  assert.equal(icon.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  assert.ok(icon.readUInt32BE(16) >= 128 && icon.readUInt32BE(20) >= 128, 'Marketplace icon must be at least 128×128');
   assert.ok(pkg.repository.url.endsWith('perdiesman/scribe.git'));
   assert.equal(pkg.contributes.configuration.properties['scribe.autoFormatMarkdown'].default, true);
   assert.equal(pkg.contributes.customEditors[0].priority, 'option');

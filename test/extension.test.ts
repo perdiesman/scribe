@@ -7,7 +7,7 @@ async function until(predicate: () => boolean) {
 }
 
 export async function run(): Promise<void> {
-  const extension = vscode.extensions.getExtension('scribe.scribe-markdown-editor');
+  const extension = vscode.extensions.getExtension('MitchellBroughton.scribe-markdown-editor');
   assert.ok(extension); await extension.activate();
   const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'roundtrip.md');
   const original = 'Title\n=====\n\n*   Keep\n\nEdit here.\n';
