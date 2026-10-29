@@ -31,4 +31,4 @@ jobs:
           name: scribe-vsix
           path: release
       - name: Publish tested VSIX with OIDC
-        run: npx --yes --package=@vscode/vsce@4.0.0 -- vsce publish --oidc --packagePath release/*.vsix
+        run: npx --yes --package=@vscode/vsce@4.1.0 -- vsce publish --oidc --packagePath release/*.vsix

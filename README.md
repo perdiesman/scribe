@@ -172,6 +172,6 @@ One-time setup:
 
 For each release, update the version in `package.json` and `package-lock.json`, update the changelog, and commit and push the release with its README screenshots. Then open **Actions → Publish SCRIBE → Run workflow** and select `main`. Ordinary pushes only run checks.
 
-The publishing workflow runs the complete CI suite and publishes the exact VSIX produced by those checks. It uses `vsce` 4.0.0 for OIDC support; the project's locked 3.x CLI still handles local packaging. Publishing does not bump versions or create commits or tags. Each release needs an unused Marketplace version. For a private repository, run the workflow within 48 hours of creating the Marketplace policy to activate it.
+The publishing workflow runs the complete CI suite and publishes the exact VSIX produced by those checks. It uses `vsce` 4.1.0 for the current Marketplace OIDC token exchange; the project's locked 3.x CLI still handles local packaging. Publishing does not bump versions or create commits or tags. Each release needs an unused Marketplace version. For a private repository, run the workflow within 48 hours of creating the Marketplace policy to activate it.
 
 Commit dependency updates together with `package-lock.json`. CI uses `npm ci`; generated bundles, test artifacts, and `.vsix` packages are excluded from version control.
