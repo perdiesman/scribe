@@ -1,0 +1,118 @@
+<p align="center"><img src="logo.png" width="220" alt="SCRIBE owl holding a quill beside a Markdown document"></p>
+
+# SCRIBE - WYSIWYG Markdown Editor
+
+**Write what you see. Commit what you mean.**
+
+SCRIBE stands for **Synchronized Content Rendering & Interactive Block Editing**. It brings visual Markdown editing, native source views, code copying, and HTML/PDF export into one VS Code extension.
+
+## Development status
+
+This repository contains the initial implementation. Core preservation, rendering, and protocol tests have passed locally. Full extension builds, browser editor tests, VS Code integration tests, VSIX packaging, and cross-platform/Remote smoke tests still need to pass before this should be released. The implementation environment could not reach npm, and its cache did not include Milkdown or the VS Code testing/packaging tools. There is no verified release artifact yet.
+
+## Open a document
+
+Run **SCRIBE: Open in SCRIBE**, or choose **Reopen Editor With → SCRIBE** on a `.md` or `.markdown` file. SCRIBE is optional; it does not replace your default Markdown editor.
+
+Use **Source** to switch to native VS Code Markdown editing, and **Split** to open editable source beside the visual document. Both views share the same file, save state, and undo history. Selection and scrolling synchronize at block boundaries. The native editor title has a source toggle to return to SCRIBE.
+
+## Write visually, or type Markdown
+
+Use the toolbar for headings, bold, italic, strikethrough, code, links, images, lists, tasks, quotes, and tables. Table controls add or remove rows and columns. Indent/Outdent adjusts list nesting.
+
+With **Auto Markdown: On**:
+
+- Type `# `, `- `, `1. `, or `> ` to start a heading, list, or quote.
+- Close delimiters such as `**bold**`, `*italic*`, or `` `code` `` to format inline text.
+- Press Enter to render valid Markdown in the current plain-text block and continue writing.
+- Type an opening code fence such as three backticks followed by `js`, then press Enter to start a code block. Newlines inside code remain literal.
+- Use Shift+Enter for a soft break. A table header and separator can be entered with Shift+Enter and committed with Enter.
+
+Turn **Auto Markdown: Off** in the toolbar to type Markdown characters literally. This disables automatic space, delimiter, and Enter conversions. Existing formatting and explicit toolbar actions still work; Enter continues existing lists normally. The toggle never rewrites the document. It persists through `scribe.autoFormatMarkdown` and updates open SCRIBE editors. Toolbar preferences use an existing workspace override when present; otherwise they save to user settings.
+
+Use Ctrl/Cmd+Z for undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y for redo. Conversion, normalization, and source edits participate in VS Code's document history.
+
+## Keep meaningful Git diffs
+
+Opening a file does not rewrite it. Visual edits retain the exact source of semantically unchanged blocks, including their original markers and intervening whitespace. Only changed regions are serialized. Source line endings are retained.
+
+**Normalize** explicitly formats the whole document with ATX headings, dash bullets, fenced code, consistent spacing, and no prose wrapping. It is one undoable document edit. Front matter and raw HTML are preserved.
+
+Front matter, reference definitions, comments, HTML, alerts, footnotes, and math retain their source. Specialized content exposes **Edit source** or **Edit**, with **Apply** and **Cancel**. Ctrl/Cmd+Enter applies a block source edit; Escape cancels. HTML-containing blocks use this source-backed view to preserve their complete markup.
+
+If source changes race pending visual edits, SCRIBE refreshes to the current source and preserves the pending visual content in an untitled Markdown document for recovery.
+
+## Rendering support
+
+Select **GitHub** or **GitLab** in the toolbar. Both profiles follow the VS Code theme in the editor; exports use a light document theme. These are local rendering profiles, not pixel-exact replicas of either website.
+
+| Content | Visual editor | HTML/PDF |
+| --- | --- | --- |
+| CommonMark headings, paragraphs, emphasis, quotes, links, images, lists | Editable | Rendered |
+| GFM tables, task lists, strikethrough, autolinks | Editable | Rendered |
+| Fenced/indented code and language highlighting | Editable, copy controls | Highlighted |
+| Mermaid | Editable code plus diagram preview | Rendered locally |
+| Inline/display math | Rendered with source controls | KaTeX |
+| Footnotes | Source-backed notes and references | Linked footnotes |
+| NOTE, TIP, IMPORTANT, WARNING, CAUTION alerts | Rendered with source controls | Rendered |
+| Sanitized HTML, including details/summary | Rendered with source controls | Rendered |
+| YAML/TOML front matter, comments, reference definitions | Preserved with source controls | Metadata/comments omitted |
+| Other GitHub/GitLab syntax | Retained as literal/source content | Literal where unsupported |
+
+Repository lookups, account authentication, issue/merge-request resolution, remote includes, GitLab-only services such as Kroki, and complete platform parity are outside this release.
+
+## Copy code
+
+Every code block has **Copy Code** and **Copy Markdown** buttons. **Copy Code** copies the displayed code exactly, without fences. **Copy Markdown** includes language and safe enclosing fences. Right-click a code block for the same copy actions. Copying uses VS Code's clipboard API.
+
+## Export
+
+Use **HTML** or **PDF**, or the corresponding command. Exports include current unsaved document content and use the selected rendering profile.
+
+- **HTML:** one standalone file with embedded styles, fonts, renderer, and supported local images. Mermaid renders when JavaScript is enabled. Remote image URLs still require a network connection.
+- **PDF:** a save dialog followed by local Chromium rendering. First use requests permission to download a pinned Chromium version, cached in extension storage. Subsequent exports work offline and require no other extension. The workspace must be trusted.
+
+PDF export blocks document network requests. Remote images and missing/unsupported local images produce explicit export warnings. Images must be in the document's workspace, or its folder for standalone files. Symlinked assets and local images over 32 MB are rejected. Relative paths are resolved against the Markdown file, including in Remote workspaces. Supported image formats: PNG, JPEG, GIF, WebP, SVG, and AVIF.
+
+Print styles wrap long code, repeat table headings, and reduce awkward page breaks. PDF export requires a platform supported by Chrome for Testing and its system libraries; Linux ARM and minimal Linux installations may require a different environment. SCRIBE reports renderer errors without modifying the source.
+
+Cancelling stops the export immediately. If the first-use renderer download is already running, it may finish in the background and remain cached; no export file is written after cancellation.
+
+## Settings and commands
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `scribe.autoFormatMarkdown` | `true` | Automatically convert typed Markdown |
+| `scribe.renderingProfile` | `github` | `github` or `gitlab` local rendering profile |
+
+Commands: **Open in SCRIBE**, **Toggle Source**, **Open Source Beside**, **Toggle Auto Markdown**, **Normalize Document**, **Export HTML**, and **Export PDF**, all prefixed with **SCRIBE:**.
+
+## Build and test
+
+Use Node.js 22 and npm:
+
+```sh
+npm install
+npm run check
+npm test
+npm run build
+npx playwright install chromium
+npm run test:ui
+npm run test:extension
+npm run package
+```
+
+Build before pressing F5 to open the **Run SCRIBE** extension host. Try [the sample document](test/fixtures/sample.md). The package command generates a `.vsix` that can be installed using **Extensions: Install from VSIX…**.
+
+The browser suite exercises the actual editor bundle against a simulated VS Code message host. The separate extension-host suite checks real VS Code editor registration, shared source, normalization, undo/revert, and settings. Linux CI runs extension-host tests under Xvfb. Manual Windows/macOS/Linux and Remote smoke tests remain a release gate.
+
+`publisher: "scribe"` is a development placeholder; set it to an authorized Marketplace publisher before publishing. This repository is configured in package metadata as [perdiesman/scribe](https://github.com/perdiesman/scribe). No code has been pushed or published by this implementation task.
+
+The current workspace exposes `.git` read-only. From a writable checkout, initialize/connect it with:
+
+```sh
+git init -b main
+git remote add origin git@github.com:perdiesman/scribe.git
+```
+
+Commit `package-lock.json` after the first successful complete installation, then use `npm ci` in CI. No complete lockfile could be generated in the implementation environment.

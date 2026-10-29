@@ -1,0 +1,77 @@
+{
+  "name": "scribe-markdown-editor",
+  "displayName": "SCRIBE - WYSIWYG Markdown Editor",
+  "description": "Write what you see. Commit what you mean. Synchronized Content Rendering & Interactive Block Editing.",
+  "version": "0.1.0",
+  "publisher": "scribe",
+  "icon": "logo.png",
+  "repository": { "type": "git", "url": "https://github.com/perdiesman/scribe.git" },
+  "homepage": "https://github.com/perdiesman/scribe",
+  "bugs": { "url": "https://github.com/perdiesman/scribe/issues" },
+  "license": "MIT",
+  "engines": { "vscode": "^1.96.0" },
+  "categories": ["Other", "Formatters"],
+  "keywords": ["markdown", "wysiwyg", "github", "gitlab", "pdf"],
+  "extensionKind": ["ui"],
+  "main": "./dist/extension.cjs",
+  "activationEvents": ["onCustomEditor:scribe.editor"],
+  "capabilities": { "untrustedWorkspaces": { "supported": "limited", "description": "Editing and HTML export work in Restricted Mode. Downloading or launching the PDF renderer requires a trusted workspace." } },
+  "contributes": {
+    "customEditors": [{ "viewType": "scribe.editor", "displayName": "SCRIBE", "selector": [{ "filenamePattern": "*.md" }, { "filenamePattern": "*.markdown" }], "priority": "option" }],
+    "commands": [
+      { "command": "scribe.open", "title": "SCRIBE: Open in SCRIBE" },
+      { "command": "scribe.toggleSource", "title": "SCRIBE: Toggle Source", "icon": "$(code)" },
+      { "command": "scribe.openSourceBeside", "title": "SCRIBE: Open Source Beside", "icon": "$(split-horizontal)" },
+      { "command": "scribe.toggleAutoMarkdown", "title": "SCRIBE: Toggle Auto Markdown" },
+      { "command": "scribe.normalize", "title": "SCRIBE: Normalize Document" },
+      { "command": "scribe.exportHtml", "title": "SCRIBE: Export HTML" },
+      { "command": "scribe.exportPdf", "title": "SCRIBE: Export PDF" }
+    ],
+    "menus": { "editor/title": [{ "command": "scribe.toggleSource", "when": "resourceLangId == markdown", "group": "navigation" }, { "command": "scribe.openSourceBeside", "when": "activeCustomEditorId == scribe.editor", "group": "navigation" }] },
+    "configuration": {
+      "title": "SCRIBE",
+      "properties": {
+        "scribe.autoFormatMarkdown": { "type": "boolean", "default": true, "description": "Convert typed Markdown using shortcuts and Enter. Turn off to type Markdown characters literally." },
+        "scribe.renderingProfile": { "type": "string", "enum": ["github", "gitlab"], "default": "github", "description": "Markdown rendering profile used in the editor and exports." }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node scripts/test.mjs",
+    "test:ui": "playwright test",
+    "test:extension": "node scripts/test-extension.mjs",
+    "package": "vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "@milkdown/kit": "^7.17.1",
+    "@puppeteer/browsers": "^2.10.10",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.22",
+    "mermaid": "^11.12.0",
+    "puppeteer-core": "^24.25.0",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "hast-util-to-html": "^9.0.5",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "remark-stringify": "^11.0.0",
+    "unified": "^11.0.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/hast": "^3.0.4",
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^22.18.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.2",
+    "esbuild": "^0.25.11",
+    "typescript": "^5.9.3"
+  }
+}

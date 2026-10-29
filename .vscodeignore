@@ -1,0 +1,17 @@
+src/**
+test/**
+scripts/**
+node_modules/**
+.vscode/**
+.vscode-test/**
+.agents/**
+.codex/**
+.aws/**
+.git/**
+.github/**
+test-results/**
+playwright-report/**
+tsconfig.json
+playwright.config.ts
+package-lock.json
+*.vsix
