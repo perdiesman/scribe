@@ -1,0 +1,34 @@
+name: Publish SCRIBE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-publish
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: scribe-vsix
+          path: release
+      - name: Publish tested VSIX with OIDC
+        run: npx --yes --package=@vscode/vsce@4.0.0 -- vsce publish --oidc --packagePath release/*.vsix

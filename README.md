@@ -7,6 +7,25 @@
 SCRIBE stands for **Synchronized Content Rendering & Interactive Block Editing**. It brings visual Markdown editing, native source views, code copying, and HTML/PDF export into one VS Code extension.
 
 <!-- screenshots:start -->
+## Editor views
+
+Captured from [`test/fixtures/sample.md`](test/fixtures/sample.md), with the table of contents visible.
+
+**WYSIWYG view**
+
+![SCRIBE WYSIWYG view with table of contents](docs/screenshots/wysiwyg.png)
+
+**Source view**
+
+![SCRIBE Source view with table of contents](docs/screenshots/source.png)
+
+**Split view**
+
+![SCRIBE Split view with table of contents](docs/screenshots/split.png)
+
+**Read-only preview**
+
+![SCRIBE Read-only preview with table of contents](docs/screenshots/preview.png)
 <!-- screenshots:end -->
 
 ## Development status
@@ -133,5 +152,26 @@ Run `npm run screenshots` to capture the sample document in WYSIWYG, Source, Spl
 The browser suite exercises the actual editor bundle against a simulated VS Code message host. The separate extension-host suite checks real VS Code editor registration, shared source, normalization, undo/revert, and settings. Linux CI runs extension-host tests under Xvfb. Manual Windows/macOS/Linux and Remote smoke tests remain a release gate.
 
 The Marketplace publisher is `MitchellBroughton` (extension ID: `MitchellBroughton.scribe-markdown-editor`). Source and issue tracking are hosted at [perdiesman/scribe](https://github.com/perdiesman/scribe).
+
+## Publish a release
+
+Publishing uses [Marketplace Trusted Publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#publish-with-github-actions-and-trusted-publishing) through GitHub Actions OIDC. No publishing token or repository secret is needed.
+
+One-time setup:
+
+1. In GitHub repository **Settings → Environments**, create an environment named `marketplace` and limit its deployment branches to `main`.
+2. Open publisher **MitchellBroughton** in [Marketplace publisher management](https://marketplace.visualstudio.com/manage), select **Trusted Publishing → Create**, and enter:
+
+   | Field | Value |
+   | --- | --- |
+   | Policy name | SCRIBE releases |
+   | Repository owner | `perdiesman` |
+   | Repository | `scribe` |
+   | Workflow | `publish.yml` |
+   | Environment | `marketplace` |
+
+For each release, update the version in `package.json` and `package-lock.json`, update the changelog, and commit and push the release with its README screenshots. Then open **Actions → Publish SCRIBE → Run workflow** and select `main`. Ordinary pushes only run checks.
+
+The publishing workflow runs the complete CI suite and publishes the exact VSIX produced by those checks. It uses `vsce` 4.0.0 for OIDC support; the project's locked 3.x CLI still handles local packaging. Publishing does not bump versions or create commits or tags. Each release needs an unused Marketplace version. For a private repository, run the workflow within 48 hours of creating the Marketplace policy to activate it.
 
 Commit dependency updates together with `package-lock.json`. CI uses `npm ci`; generated bundles, test artifacts, and `.vsix` packages are excluded from version control.
