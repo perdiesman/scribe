@@ -36,7 +36,16 @@ Browser editing, native VS Code integration, PDF output, and cross-platform/Remo
 
 ## Open a document
 
-Run **SCRIBE: Open in SCRIBE**, or choose **Reopen Editor With → SCRIBE** on a `.md` or `.markdown` file. SCRIBE is optional; it does not replace your default Markdown editor.
+SCRIBE registers as the default editor for `.md` and `.markdown` files when installed. Explicit editor associations in your VS Code settings take precedence; if multiple extensions register as the default, VS Code may ask you to choose. You can also run **SCRIBE: Open in SCRIBE**, or choose **Reopen Editor With → SCRIBE**.
+
+To use the plain text editor for a file, choose **Reopen Editor With → Text Editor**. To keep it as your default, add or merge these entries in your VS Code user settings:
+
+```json
+"workbench.editorAssociations": {
+  "*.md": "default",
+  "*.markdown": "default"
+}
+```
 
 Use **Source view**, **WYSIWYG view**, **Split view**, or **Read-only preview** in the toolbar. All four stay inside the same SCRIBE tab. Split displays editable Markdown beside the visual editor, with synchronized selection and scrolling. Both editing panes share the same file, save state, undo history, and toolbar. Formatting actions apply to the focused pane: Markdown syntax in Source, rich formatting in WYSIWYG.
 

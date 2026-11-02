@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Register SCRIBE as the default editor for Markdown files while respecting explicit user editor associations.
+
 ## 0.1.5
 
 - Add a live left-side table of contents with heading navigation in all four views.

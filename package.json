@@ -2,7 +2,7 @@
   "name": "scribe-markdown-editor",
   "displayName": "SCRIBE - WYSIWYG Markdown Editor",
   "description": "Write what you see. Commit what you mean. Synchronized Content Rendering & Interactive Block Editing.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "MitchellBroughton",
   "icon": "icon.png",
   "repository": { "type": "git", "url": "https://github.com/perdiesman/scribe.git" },
@@ -17,7 +17,7 @@
   "activationEvents": ["onCustomEditor:scribe.editor"],
   "capabilities": { "untrustedWorkspaces": { "supported": "limited", "description": "Editing and HTML export work in Restricted Mode. Downloading or launching the PDF renderer requires a trusted workspace." } },
   "contributes": {
-    "customEditors": [{ "viewType": "scribe.editor", "displayName": "SCRIBE", "selector": [{ "filenamePattern": "*.md" }, { "filenamePattern": "*.markdown" }], "priority": "option" }],
+    "customEditors": [{ "viewType": "scribe.editor", "displayName": "SCRIBE", "selector": [{ "filenamePattern": "*.md" }, { "filenamePattern": "*.markdown" }], "priority": "default" }],
     "commands": [
       { "command": "scribe.open", "title": "SCRIBE: Open in SCRIBE" },
       { "command": "scribe.toggleSource", "title": "SCRIBE: Toggle Source", "icon": "$(code)" },

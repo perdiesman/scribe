@@ -130,7 +130,8 @@ test('logo, commands, setting, and repository metadata are packaged', () => {
   assert.ok(icon.readUInt32BE(16) >= 128 && icon.readUInt32BE(20) >= 128, 'Marketplace icon must be at least 128×128');
   assert.ok(pkg.repository.url.endsWith('perdiesman/scribe.git'));
   assert.equal(pkg.contributes.configuration.properties['scribe.autoFormatMarkdown'].default, true);
-  assert.equal(pkg.contributes.customEditors[0].priority, 'option');
+  assert.equal(pkg.contributes.customEditors[0].priority, 'default');
+  assert.deepEqual(pkg.contributes.customEditors[0].selector, [{ filenamePattern: '*.md' }, { filenamePattern: '*.markdown' }]);
 });
 
 test('local image resolution rejects traversal, protocols, malformed paths, and symlink escapes', async () => {
