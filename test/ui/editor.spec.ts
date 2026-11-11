@@ -1,6 +1,24 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
+test('plain documents skip the diagram engine and load it when a diagram is added', async ({ page }) => {
+  const diagramRequests: string[] = [];
+  page.on('request', request => { if (/\/chunks\/mermaid[^/]*\.js/.test(request.url())) diagramRequests.push(request.url()); });
+  const original = '# Discussion\n\n' + '- A proposed requirement with ordinary prose.\n'.repeat(40)
+    + '\n| Concept | Information |\n| --- | --- |\n' + '| Session | Application-scoped context and activity times. |\n'.repeat(20);
+  const { state } = await open(page, original);
+  await expect(page.locator('.ProseMirror table')).toBeVisible();
+  expect(diagramRequests).toHaveLength(0);
+  expect((await state()).source).toBe(original);
+  await page.getByRole('button', { name: 'Source view', exact: true }).click();
+  const updated = original + '\n\n```mermaid\nflowchart LR\n A --> B\n```';
+  await page.getByRole('textbox', { name: 'Markdown source', exact: true }).fill(updated);
+  await page.getByRole('button', { name: 'Split view', exact: true }).click();
+  await expect(page.locator('.diagram-preview svg')).toBeVisible();
+  expect(diagramRequests.length).toBeGreaterThan(0);
+  await expect.poll(async () => (await state()).source).toBe(updated);
+});
+
 test('TOC responds to available room and preserves the manual toggle across views and reloads', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 800 }); await open(page, '# Heading');
   const toc = page.getByRole('navigation', { name: 'Table of contents' });

@@ -66,6 +66,9 @@ const server = createServer(async (request, response) => {
       const bridge = `const id=${JSON.stringify(id).replace(/</g, '\\u003c')};let queue=Promise.resolve();window.acquireVsCodeApi=()=>({getState:()=>JSON.parse(sessionStorage.getItem(id)||'null'),setState:state=>sessionStorage.setItem(id,JSON.stringify(state)),postMessage(message){queue=queue.then(()=>fetch('/message?id='+encodeURIComponent(id),{method:'POST',body:JSON.stringify(message)}).then(r=>r.json()).then(messages=>messages.forEach(data=>window.postMessage(data,'*'))))}});`;
       response.setHeader('Content-Type', 'text/javascript'); response.end(bridge + '\n' + await readFile('dist/editor.js', 'utf8')); return;
     }
+    if (/^\/chunks\/[\w.-]+\.js$/.test(url.pathname)) {
+      response.setHeader('Content-Type', 'text/javascript'); response.end(await readFile('dist' + url.pathname)); return;
+    }
     const files = { '/editor.js': ['dist/editor.js', 'text/javascript'], '/style.css': ['dist/style.css', 'text/css'], '/render.js': ['dist/render.js', 'text/javascript'], '/logo.png': ['logo.png', 'image/png'] };
     const file = files[url.pathname];
     if (!file) { response.statusCode = 404; response.end(); return; }

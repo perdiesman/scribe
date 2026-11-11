@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7
+
+- Defer Mermaid and its diagram engines until a visible diagram needs rendering, reducing JavaScript loaded when opening ordinary Markdown documents.
+- Keep HTML and PDF diagram rendering self-contained for offline exports.
+
 ## 0.1.6
 
 - Register SCRIBE as the default editor for Markdown files while respecting explicit user editor associations.

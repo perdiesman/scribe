@@ -59,6 +59,8 @@ The status bar shows **Unsaved changes** until the VS Code document is saved, th
 
 The compact toolbar shares a row with the SCRIBE branding when there is room and wraps underneath in narrower windows. Its icons have tooltips and accessible labels. Use its heading menu, formatting buttons, and **Table actions** menu to insert tables or add/remove rows and columns. Controls follow the VS Code light, dark, and high-contrast themes.
 
+The diagram engine loads only when a visible Mermaid diagram needs it, so ordinary documents open without loading diagram code. HTML and PDF exports still include everything needed to render diagrams offline.
+
 Source and Split views highlight Markdown syntax as you type. The source remains plain editable Markdown, with colors following the editor theme.
 
 With **Auto Markdown: On**:

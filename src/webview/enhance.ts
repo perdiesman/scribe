@@ -1,5 +1,3 @@
-import mermaid from 'mermaid';
-
 let theme: 'dark' | 'neutral' | undefined;
 const currentTheme = () => !document.body.classList.contains('export') && (document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')) ? 'dark' : 'neutral';
 
@@ -9,10 +7,13 @@ export async function enhance(root: ParentNode = document): Promise<void> {
     const source = node.dataset.mermaidSource ?? node.textContent ?? ''; node.dataset.mermaidSource = source;
     if (!node.isConnected) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     if (!node.isConnected || !node.getClientRects().length) continue;
-    if (theme !== currentTheme()) {
-      theme = currentTheme(); mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme, suppressErrorRendering: true, maxTextSize: 50_000 });
+    try {
+      const { default: mermaid } = await import('mermaid');
+      if (theme !== currentTheme()) {
+        theme = currentTheme(); mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme, suppressErrorRendering: true, maxTextSize: 50_000 });
+      }
+      await mermaid.run({ nodes: [node] }); if (!node.querySelector('svg')) throw new Error('No diagram was generated.');
     }
-    try { await mermaid.run({ nodes: [node] }); if (!node.querySelector('svg')) throw new Error('No diagram was generated.'); }
     catch {
       node.dataset.processed = 'true'; node.classList.add('render-error');
       node.textContent = 'Unable to render Mermaid diagram. Edit its source to correct it.\n\n' + source;

@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { dirname, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -7,11 +7,12 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = resolve(root, 'dist');
+await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 const shared = { bundle: true, logLevel: 'info', sourcemap: false, target: 'es2022', legalComments: 'eof', minify: true };
 await Promise.all([
   build({ ...shared, entryPoints: [resolve(root, 'src/extension.ts')], outfile: resolve(dist, 'extension.cjs'), platform: 'node', format: 'cjs', external: ['vscode'] }),
-  build({ ...shared, entryPoints: [resolve(root, 'src/webview/editor.ts')], outfile: resolve(dist, 'editor.js'), platform: 'browser', format: 'iife' }),
+  build({ ...shared, entryPoints: [resolve(root, 'src/webview/editor.ts')], outdir: dist, platform: 'browser', format: 'esm', splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
   build({ ...shared, entryPoints: [resolve(root, 'src/webview/enhance.ts')], outfile: resolve(dist, 'render.js'), platform: 'browser', format: 'iife' }),
 ]);
 const styles = await build({ ...shared, entryPoints: [resolve(root, 'src/webview/style.css')], bundle: true, write: false });
